@@ -47,7 +47,7 @@
             "description": "Filter categories by visibility status: 'active' (shown in the storefront) or 'hidden'."
           }
         },
-        "required": ["page"],
+        "required": [],
         "additionalProperties": false
       }
     },
@@ -61,7 +61,7 @@
           "parent_id": { "type": "integer", "description": "Id of the parent category; 0 for a top-level category." },
           "status": { "type": "string", "description": "Visibility status: 'active' or 'hidden'." },
           "sort_order": { "type": "integer", "description": "The category's position among its siblings." },
-          "image": { "type": "string", "description": "URL of the category's image, if one is set." }
+          "image": { "type": ["string", "null"], "description": "URL of the category's image; null when the category has none." }
         },
         "required": ["id", "name"]
       },
