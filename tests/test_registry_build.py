@@ -58,6 +58,7 @@ def test_multi_tool_packages_are_expanded_in_the_name_list(tmp_path):
     }
 
     path = REPO_ROOT / "contracts" / "_tmp_multi_for_test.json"
+    path.parent.mkdir(exist_ok=True)
     path.write_text(json.dumps(package), encoding="utf-8")
     try:
         payload = build(tmp_path)
@@ -72,6 +73,7 @@ def test_multi_tool_packages_are_expanded_in_the_name_list(tmp_path):
 def test_build_refuses_an_invalid_contract(tmp_path):
     """A registry that exists is a registry that passed the gate."""
     broken = REPO_ROOT / "contracts" / "_tmp_broken_for_test.json"
+    broken.parent.mkdir(exist_ok=True)
     broken.write_text(json.dumps({"contractVersion": "1.0.0", "kind": "single-tool"}), "utf-8")
     try:
         result = subprocess.run(
