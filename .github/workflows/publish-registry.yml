@@ -42,9 +42,16 @@ jobs:
         id: build
         run: |
           uv run python scripts/build_registry.py
+
+          # One archive rather than one asset per contract: the engine makes a
+          # single download whether the registry holds one tool or five hundred.
+          # `-C dist/registry .` puts registry.json at the archive root, so
+          # extracting gives the engine the directory it pins verbatim.
+          tar -czf dist/registry.tar.gz -C dist/registry .
+
           {
-            echo "tools=$(jq -r '.toolCount' dist/registry.generated.json)"
-            echo "sha256=$(sha256sum dist/registry.generated.json | cut -d' ' -f1)"
+            echo "tools=$(jq -r '.toolCount' dist/registry/registry.json)"
+            echo "sha256=$(sha256sum dist/registry.tar.gz | cut -d' ' -f1)"
           } >> "$GITHUB_OUTPUT"
 
       - name: Summarize
@@ -56,7 +63,7 @@ jobs:
             echo "- commit: \`${{ github.sha }}\`"
             echo "- sha256: \`${{ steps.build.outputs.sha256 }}\`"
             echo ""
-            jq -r '.toolNames[] | "- `" + . + "`"' dist/registry.generated.json
+            jq -r '.toolNames[] | "- `" + . + "`"' dist/registry/registry.json
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish immutable release
@@ -67,7 +74,9 @@ jobs:
           body: |
             Built from `${{ github.sha }}`.
             sha256 `${{ steps.build.outputs.sha256 }}`
-          files: dist/registry.generated.json
+          files: |
+            dist/registry.tar.gz
+            dist/registry/registry.json
 
       - name: Move the rolling pointer
         uses: softprops/action-gh-release@v2
@@ -75,7 +84,9 @@ jobs:
           tag_name: registry-latest
           name: Registry (latest)
           body: 'Rolling pointer. Built from `${{ github.sha }}`.'
-          files: dist/registry.generated.json
+          files: |
+            dist/registry.tar.gz
+            dist/registry/registry.json
 
       # The engine must verify it can execute this registry before anyone
       # depends on it. That check lives in the engine repo, because only the

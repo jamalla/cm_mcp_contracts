@@ -245,7 +245,7 @@ uv sync --extra dev
 uv run pytest                                 # 54 tests
 uv run python scripts/validate_contracts.py   # structural + cross-reference checks
 uv run python scripts/eval_contracts.py       # semantic review (heuristics without a key)
-uv run python scripts/build_registry.py       # -> dist/registry.generated.json
+uv run python scripts/build_registry.py       # -> dist/registry/
 pwsh scripts/demo_gate.ps1                    # watch bad contracts get rejected
 ```
 

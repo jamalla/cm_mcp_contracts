@@ -1,12 +1,30 @@
-"""Build the registry artifact that cm_mcp_engine consumes.
+"""Build the registry the engine consumes.
 
-Merge to main is approval; this turns the approved set into one file the engine
+Merge to main is approval; this turns the approved set into an artifact the engine
 can download, pin, and serve. It re-validates everything on the way out, so a
 registry that exists is a registry that passed the gate.
 
+**Layout: an index plus one file per contract.**
+
+    registry/
+      registry.json                    <- provenance and a hash per contract
+      contracts/list_categories.json   <- the contract, byte-for-byte as submitted
+
+Not one file with every contract inlined. At a few contracts the difference is
+cosmetic; at a few hundred it decides whether the engine's pin PR is reviewable.
+One file per contract means a diff shows *which* contract changed, `git blame`
+answers "who changed this tool", and two registry updates touching different
+tools do not conflict.
+
+The index is what makes the directory a registry rather than a folder. It carries
+the provenance the engine pins -- source commit, build time, schema id -- and a
+sha256 per entry, so the engine serves exactly what was published: a file added to
+`contracts/` afterwards is not listed and is not served, and an edited one fails
+its hash. Approved stops meaning "present on disk".
+
 Usage:
-    python scripts/build_registry.py                       # -> dist/registry.generated.json
-    python scripts/build_registry.py --out some/path.json
+    python scripts/build_registry.py                    # -> dist/registry/
+    python scripts/build_registry.py --out build/reg
 """
 
 from __future__ import annotations
@@ -14,6 +32,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -24,7 +43,10 @@ from jsonschema import Draft202012Validator
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = REPO_ROOT / "schema" / "tool-contract.v1.json"
 CONTRACTS_DIR = REPO_ROOT / "contracts"
-DEFAULT_OUT = REPO_ROOT / "dist" / "registry.generated.json"
+DEFAULT_OUT = REPO_ROOT / "dist" / "registry"
+
+INDEX_NAME = "registry.json"
+CONTRACTS_SUBDIR = "contracts"
 
 
 def git_sha() -> str:
@@ -36,40 +58,69 @@ def git_sha() -> str:
         return "unknown"
 
 
-def tool_names(contract: dict) -> list[str]:
+def tool_name(contract: dict) -> str | None:
     """One endpoint per contract, so at most one name."""
-    name = contract.get("interface", {}).get("name")
-    return [name] if name else []
+    return contract.get("interface", {}).get("name")
+
+
+def canonical(contract: dict) -> bytes:
+    """The exact bytes that get written and hashed.
+
+    Formatted rather than copied verbatim, so the hash depends on the contract's
+    content and not on how its author happened to indent it.
+
+    Bytes, and written with `write_bytes`, because text mode rewrites newlines on
+    Windows: the file on disk would end up CRLF while the hash was taken over LF,
+    and the artifact would fail its own integrity check on the platform it was
+    built on. An artifact has to mean the same thing everywhere it is produced.
+    """
+    body = json.dumps(contract, indent=2, ensure_ascii=False, sort_keys=False) + "\n"
+    return body.encode("utf-8")
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build registry.generated.json.")
-    parser.add_argument("--out", default=str(DEFAULT_OUT))
+    parser = argparse.ArgumentParser(description="Build the registry artifact.")
+    parser.add_argument("--out", default=str(DEFAULT_OUT), help="output directory")
     args = parser.parse_args()
 
-    validator = Draft202012Validator(json.loads(SCHEMA_PATH.read_text(encoding="utf-8")))
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    validator = Draft202012Validator(schema)
 
-    contracts: list[dict] = []
+    entries: list[dict] = []
+    bodies: dict[str, bytes] = {}
     names: list[str] = []
     failures: list[str] = []
 
     for path in sorted(CONTRACTS_DIR.rglob("*.json")):
         contract = json.loads(path.read_text(encoding="utf-8"))
 
-        # Belt and braces: the PR gate already validated these, but a registry
-        # is published without a human in the loop, so it re-checks.
+        # Belt and braces: the PR gate already validated these, but a registry is
+        # published without a human in the loop, so it re-checks.
         if errors := sorted(validator.iter_errors(contract), key=str):
             failures.append(f"{path.name}: {errors[0].message}")
             continue
 
-        entry_names = tool_names(contract)
-        clashes = sorted(set(entry_names) & set(names))
-        if clashes:
-            failures.append(f"{path.name}: tool name(s) already in the registry: {clashes}")
+        name = tool_name(contract)
+        if not name:
+            failures.append(f"{path.name}: interface.name is missing")
             continue
 
-        contracts.append(contract)
-        names.extend(entry_names)
+        if name in names:
+            failures.append(f"{path.name}: tool name {name!r} is already in the registry")
+            continue
+
+        body = canonical(contract)
+        relative = f"{CONTRACTS_SUBDIR}/{name}.json"
+        bodies[relative] = body
+        names.append(name)
+        entries.append(
+            {
+                "name": name,
+                "version": contract.get("contractVersion", "0.0.0"),
+                "path": relative,
+                "sha256": hashlib.sha256(body).hexdigest(),
+            }
+        )
 
     if failures:
         print("Refusing to publish a registry with invalid contracts:\n")
@@ -77,26 +128,37 @@ def main() -> int:
             print(f"  - {failure}")
         return 1
 
-    payload = {
+    index = {
         "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "sourceRepo": "cm_mcp_contracts",
         "sourceCommit": git_sha(),
-        "schemaId": json.loads(SCHEMA_PATH.read_text(encoding="utf-8")).get("$id"),
+        "schemaId": schema.get("$id"),
+        "layout": "index",
         "toolCount": len(names),
         "toolNames": sorted(names),
-        "contracts": contracts,
+        # Sorted so a rebuild of an unchanged registry is byte-identical, which is
+        # what lets the engine's consume step say "nothing changed" honestly.
+        "contracts": sorted(entries, key=lambda entry: entry["name"]),
     }
 
-    body = json.dumps(payload, indent=2, sort_keys=False) + "\n"
     out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(body, encoding="utf-8")
+    # Rebuilt from scratch: a contract deleted upstream must disappear here, and a
+    # leftover file would be served by an engine that trusted the directory.
+    if out.exists():
+        shutil.rmtree(out)
+    (out / CONTRACTS_SUBDIR).mkdir(parents=True)
 
-    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    for relative, body in bodies.items():
+        (out / relative).write_bytes(body)
+
+    index_body = (json.dumps(index, indent=2) + "\n").encode("utf-8")
+    (out / INDEX_NAME).write_bytes(index_body)
+
     print(f"Wrote {out}")
-    print(f"  contracts : {len(contracts)}")
-    print(f"  tools     : {len(names)} -> {', '.join(sorted(names))}")
-    print(f"  sha256    : {digest}")
+    print(f"  index     : {INDEX_NAME}  ({hashlib.sha256(index_body).hexdigest()[:12]})")
+    print(f"  contracts : {len(entries)} file(s) in {CONTRACTS_SUBDIR}/")
+    for entry in index["contracts"]:
+        print(f"    {entry['name']:<28} v{entry['version']:<8} {entry['sha256'][:12]}")
     return 0
 
 
