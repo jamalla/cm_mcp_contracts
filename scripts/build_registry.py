@@ -128,17 +128,26 @@ def main() -> int:
             print(f"  - {failure}")
         return 1
 
+    # Sorted so a rebuild of an unchanged registry produces identical entries.
+    contracts = sorted(entries, key=lambda entry: entry["name"])
+
     index = {
         "generatedAt": datetime.now(UTC).isoformat(timespec="seconds"),
         "sourceRepo": "cm_mcp_contracts",
         "sourceCommit": git_sha(),
         "schemaId": schema.get("$id"),
         "layout": "index",
+        # What the registry *is*, with the build stamp left out: names, versions and
+        # hashes. Every publish writes a fresh generatedAt and sourceCommit, so
+        # without this the engine would open a pin PR for a commit that touched a
+        # script and changed no contract -- review fatigue at exactly the scale this
+        # layout exists to survive. consume-registry compares this and stops.
+        "contentHash": hashlib.sha256(
+            json.dumps(contracts, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
         "toolCount": len(names),
         "toolNames": sorted(names),
-        # Sorted so a rebuild of an unchanged registry is byte-identical, which is
-        # what lets the engine's consume step say "nothing changed" honestly.
-        "contracts": sorted(entries, key=lambda entry: entry["name"]),
+        "contracts": contracts,
     }
 
     out = Path(args.out)

@@ -50,6 +50,36 @@ def test_every_recorded_hash_matches_its_file(tmp_path):
         assert actual == entry["sha256"], entry["name"]
 
 
+def test_the_content_hash_ignores_the_build_stamp(tmp_path):
+    """Two builds of the same contracts agree, even though the stamps differ.
+
+    This is what stops the engine opening a pin PR for a commit upstream that
+    touched a script and changed no contract -- review fatigue at exactly the
+    scale this layout exists to survive.
+    """
+    first, _ = build(tmp_path / "a")
+    second, _ = build(tmp_path / "b")
+
+    assert first["contentHash"] == second["contentHash"]
+    assert first["contentHash"] == hashlib.sha256(
+        json.dumps(first["contracts"], sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def test_the_content_hash_moves_when_a_contract_does(tmp_path):
+    from tests.test_salla_rules import READ_CONTRACT
+
+    before, _ = build(tmp_path / "before")
+    extra = REPO_ROOT / "contracts" / "_tmp_hash_probe.json"
+    extra.write_text(json.dumps(READ_CONTRACT), encoding="utf-8")
+    try:
+        after, _ = build(tmp_path / "after")
+    finally:
+        extra.unlink()
+
+    assert after["contentHash"] != before["contentHash"]
+
+
 def test_a_rebuild_is_byte_identical(tmp_path):
     """Lets the engine's consume step say "nothing changed" and mean it."""
     first, out_a = build(tmp_path / "a")
