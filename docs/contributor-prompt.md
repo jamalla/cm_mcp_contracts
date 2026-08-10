@@ -59,6 +59,8 @@ THE WORK
      ~5-6 fields per category an agent actually cares about, set
      collection/pagination truthfully, and add a ui hint (a table fits a
      category listing).
+   - response.errors: copy the endpoint's documented failure statuses from its
+     docs page and write each meaning for the agent to relay to a user.
    - auth.scopes: the narrowest scope Salla's docs state for this endpoint.
    - governance: caching only if justified, with keyBy naming real arguments
      and a sensible ttlSeconds.

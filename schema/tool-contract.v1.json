@@ -369,7 +369,8 @@
           "minItems": 1,
           "items": { "type": "integer", "minimum": 200, "maximum": 299 },
           "description": "Which HTTP statuses count as success. Salla, for instance, returns 201 on some creates and 202 on deletes."
-        }
+        },
+        "errors": { "$ref": "#/$defs/errorEnvelope" }
       },
       "patternProperties": { "^_comment": true },
       "additionalProperties": false,
@@ -380,6 +381,56 @@
           "then": { "properties": { "collection": { "const": true } }, "required": ["collection"] }
         }
       ]
+    },
+
+    "errorEnvelope": {
+      "type": "object",
+      "description": "How this endpoint fails. Salla-style upstreams return the same envelope on failure -- {status, success: false, error: {code, message, fields?}} -- and document the statuses per endpoint. Declaring them lets the engine surface a real reason to the agent instead of a raw dump, and lets the agent tell the user 'no category with that id' rather than 'request failed'. Success and failure cannot overlap by construction: successStatuses is 2xx, these are 4xx/5xx.",
+      "required": ["statuses"],
+      "properties": {
+        "messagePath": {
+          "type": "string",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_.]*$",
+          "default": "error.message",
+          "description": "Dotted path to the human-readable failure reason inside the error envelope. For Salla, error.message."
+        },
+        "fieldsPath": {
+          "type": "string",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_.]*$",
+          "default": "error.fields",
+          "description": "Dotted path to per-field validation errors, when the upstream returns them (Salla's 422 shape: error.fields maps field paths to message arrays). Omit when it has none."
+        },
+        "statuses": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The failure statuses this endpoint is documented to return, each with what it means HERE -- a 404 on a detail endpoint means the id was wrong, which is worth saying precisely.",
+          "items": {
+            "type": "object",
+            "required": ["status", "meaning"],
+            "properties": {
+              "status": {
+                "type": "integer",
+                "minimum": 400,
+                "maximum": 599,
+                "description": "The HTTP status code, 4xx or 5xx."
+              },
+              "meaning": {
+                "type": "string",
+                "minLength": 10,
+                "description": "What this status means for THIS endpoint, written for the agent to relay to a user, e.g. 'no category exists with this id'."
+              },
+              "retryable": {
+                "type": "boolean",
+                "description": "Whether the engine may retry the call unchanged. When omitted the engine decides by class: 429 and 5xx retryable, other 4xx not. Declare it only to override or make the upstream's documented behavior explicit."
+              }
+            },
+            "patternProperties": { "^_comment": true },
+            "additionalProperties": false
+          }
+        }
+      },
+      "patternProperties": { "^_comment": true },
+      "additionalProperties": false
     },
 
     "validation": {

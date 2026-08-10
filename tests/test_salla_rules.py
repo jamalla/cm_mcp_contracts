@@ -234,6 +234,48 @@ def test_data_path_is_required(validator):
     assert errors(validator, contract)
 
 
+# -- failure declarations --------------------------------------------------------
+
+
+ERRORS_BLOCK = {
+    "messagePath": "error.message",
+    "fieldsPath": "error.fields",
+    "statuses": [
+        {"status": 401, "meaning": "the app's token lacks the categories.read scope"},
+        {"status": 404, "meaning": "no category exists with this id"},
+        {"status": 429, "meaning": "rate limited by the upstream", "retryable": True},
+    ],
+}
+
+
+def test_documented_failures_are_accepted(validator):
+    """An endpoint can declare its 4xx/5xx statuses with agent-facing meanings."""
+    contract = copy.deepcopy(READ_CONTRACT)
+    contract["binding"]["http"]["response"]["errors"] = ERRORS_BLOCK
+    assert not errors(validator, contract)
+
+
+def test_error_statuses_must_be_failures(validator):
+    """2xx belongs in successStatuses; the ranges keep the two disjoint by construction."""
+    contract = copy.deepcopy(READ_CONTRACT)
+    contract["binding"]["http"]["response"]["errors"] = {
+        "statuses": [{"status": 200, "meaning": "definitely not an error status"}]
+    }
+    assert errors(validator, contract)
+
+
+def test_error_meanings_are_required_and_substantial(validator):
+    """A bare status code tells the agent nothing it could not guess."""
+    contract = copy.deepcopy(READ_CONTRACT)
+    contract["binding"]["http"]["response"]["errors"] = {"statuses": [{"status": 404}]}
+    assert errors(validator, contract)
+
+    contract["binding"]["http"]["response"]["errors"] = {
+        "statuses": [{"status": 404, "meaning": "404"}]
+    }
+    assert errors(validator, contract), "a meaning shorter than 10 chars should be rejected"
+
+
 # -- parameter mapping ---------------------------------------------------------
 
 

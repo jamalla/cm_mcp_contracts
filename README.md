@@ -81,6 +81,7 @@ One endpoint, one tool, one file. Three layers:
 | arguments | `interface.input.schema` | the MCP tool's `inputSchema` |
 | **UI display** | `interface.response.ui` — `card` / `table` / `text` / `json`, with `{field}` interpolation | the rendering hint a client uses instead of dumping raw JSON |
 | **auth** | `binding.http.auth.scopes` | the scopes the engine's resolved credential must carry — never a secret, never a token |
+| **failure responses** | `binding.http.response.errors` — where the error message lives (`messagePath`, `fieldsPath`) plus the documented 4xx/5xx statuses, each with an agent-facing `meaning` and optional `retryable` | how the engine explains a failure — the agent says *"no category with that id"* instead of *"request failed"* |
 | **dependencies** | `dependencies[]` — `{contract, reason}` per dependent tool | reviewer + agent documentation (the POC engine does not resolve them yet) |
 
 ## Submit a tool — step by step
@@ -178,6 +179,12 @@ Rules marked **enforced** fail the gate. The rest are conventions your reviewer 
 - `response.dataPath` is almost always `"data"`; `successStatuses` should match the upstream
   (Salla: 201 on some creates, 202 on deletes). **Enforced:** `pagination: "standard"` implies
   `collection: true`.
+- Declare the endpoint's **documented failures** under `response.errors`: the documented 4xx/5xx
+  statuses (Salla lists them per endpoint), each with a `meaning` written for the agent to relay
+  — *"no category exists with this id"*, not *"not found"*. `messagePath`/`fieldsPath` locate
+  the reason and per-field validation errors in the error envelope (Salla: `error.message`,
+  `error.fields`). Mark `retryable` only where the upstream says so; 429/5xx retry by default.
+  **Enforced:** statuses are 4xx/5xx only, and every one carries a substantial meaning.
 
 ### Auth and scopes
 

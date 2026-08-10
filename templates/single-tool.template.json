@@ -93,12 +93,19 @@
         "body": { "mode": "none" }
       },
 
-      "_comment_response": "Salla-style envelopes wrap everything in {status, success, data}, plus a pagination object on lists. This tells the engine what to unwrap.",
+      "_comment_response": "Salla-style envelopes wrap everything in {status, success, data}, plus a pagination object on lists. This tells the engine what to unwrap -- and, under errors, how the endpoint FAILS: copy the documented 4xx/5xx statuses from its docs page and write each meaning for the agent to relay to a user. Mark retryable only where the upstream says so; 429/5xx retry by default anyway.",
       "response": {
         "dataPath": "data",
         "collection": false,
         "pagination": "none",
-        "successStatuses": [200]
+        "successStatuses": [200],
+        "errors": {
+          "messagePath": "error.message",
+          "statuses": [
+            { "status": 401, "meaning": "TODO what a 401 means here, e.g. the app's token lacks the required scope." },
+            { "status": 404, "meaning": "TODO what a 404 means here, e.g. no record exists with this id." }
+          ]
+        }
       },
 
       "timeoutMs": 10000
