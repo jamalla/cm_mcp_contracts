@@ -1,0 +1,68 @@
+# PR gate. Nothing reaches the registry without passing both jobs.
+name: contract-gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  structural:
+    name: Structural validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Validate every approved contract against the meta-schema
+        # The whole set, not just the diff: tightening the schema must not leave
+        # an older contract silently non-conforming.
+        run: uv run python scripts/validate_contracts.py
+
+      - name: Confirm the rejection fixtures are still rejected
+        # Guards the gate itself. If a schema edit accidentally makes these
+        # valid, the gate has stopped gating.
+        run: uv run python scripts/validate_contracts.py --dir tests/fixtures/invalid --expect-invalid
+
+      - name: Unit tests
+        run: uv run --extra dev pytest -q
+
+  semantic:
+    name: Semantic review (LLM-as-judge)
+    needs: structural
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Review contract quality
+        # Falls back to deterministic heuristics when the secret is absent,
+        # which is what happens on fork PRs. The check still means something
+        # there rather than silently passing.
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: uv run python scripts/eval_contracts.py
+
+  buildable:
+    name: Registry builds
+    needs: structural
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Build the registry artifact
+        # Catches duplicate tool names and anything else that would break
+        # publishing, on the PR rather than after merge.
+        run: uv run python scripts/build_registry.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: registry-preview
+          path: dist/registry.generated.json

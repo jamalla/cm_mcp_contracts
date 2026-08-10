@@ -1,0 +1,23 @@
+[project]
+name = "cm-mcp-contracts"
+version = "0.1.0"
+description = "The contract rulebook, templates, approved tool contracts, and the governance gate"
+requires-python = ">=3.11"
+dependencies = [
+    "jsonschema>=4.23",
+    "anthropic>=0.40",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# No importable package: this repo ships JSON and the scripts that police it.
+only-include = ["schema", "templates", "contracts"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

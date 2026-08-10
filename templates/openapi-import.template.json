@@ -1,0 +1,39 @@
+{
+  "$schema": "../schema/tool-contract.v1.json",
+  "_comment": "STARTER FILE for importing an existing OpenAPI spec instead of hand-writing contracts. You name the spec and the operationIds you want; a converter reads this and emits full single-tool contracts, which then flow through the exact same gate as anything hand-written. NOTE: the converter itself is out of scope for this POC -- the schema accepts this kind so the lane exists, but nothing consumes it yet.",
+
+  "contractVersion": "1.0.0",
+  "kind": "openapi-import",
+
+  "source": {
+    "specUrl": "https://api.your-service.example/openapi.json",
+    "version": "2024-01-01"
+  },
+
+  "_comment_operations": "Only these operationIds are imported. Importing a whole spec unreviewed is exactly what the gate exists to prevent.",
+  "operations": [
+    "getOrderStatus",
+    "listOrders"
+  ],
+
+  "defaults": {
+    "_comment": "Applied to every imported operation unless an override says otherwise.",
+    "auth": { "type": "bearer", "secretRef": "TODO_SECRET_NAME" },
+    "timeoutMs": 5000,
+    "governance": {
+      "annotations": { "readOnly": true, "destructive": false, "idempotent": true, "openWorld": true },
+      "execution": { "mode": "direct", "humanApproval": "never" },
+      "caching": { "cacheable": true, "ttlSeconds": 300 }
+    }
+  },
+
+  "_comment_overrides": "'overrides' is keyed by operationId -- use it to add selection hints the spec cannot express, or to tighten governance on one operation. Note the comment lives out here: every key inside 'overrides' is treated as an operationId.",
+  "overrides": {
+    "getOrderStatus": {
+      "interface": {
+        "whenToUse": ["The user asks where an order is or whether it shipped."],
+        "whenNotToUse": ["No order ID is available -- search first."]
+      }
+    }
+  }
+}

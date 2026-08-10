@@ -1,0 +1,390 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contract-mcp.example/schemas/tool-contract.v1.json",
+  "title": "Tool Contract v1",
+  "description": "The rulebook. Defines what a valid tool contract must contain. CI validates every submitted contract against this file, and contributors get IDE autocomplete from it via the $schema key.",
+
+  "type": "object",
+  "required": ["contractVersion", "kind"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "contractVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Semver. Bumping this retires cached generated code for the tool."
+    },
+    "kind": {
+      "enum": ["single-tool", "multi-tool", "openapi-import"]
+    }
+  },
+
+  "oneOf": [
+    { "$ref": "#/$defs/singleToolContract" },
+    { "$ref": "#/$defs/multiToolContract" },
+    { "$ref": "#/$defs/openapiImportContract" }
+  ],
+
+  "$defs": {
+    "singleToolContract": {
+      "type": "object",
+      "required": ["contractVersion", "kind", "interface", "binding", "governance"],
+      "properties": {
+        "$schema": { "type": "string" },
+        "contractVersion": { "type": "string" },
+        "kind": { "const": "single-tool" },
+        "interface": { "$ref": "#/$defs/interface" },
+        "binding": { "$ref": "#/$defs/binding" },
+        "validation": { "$ref": "#/$defs/validation" },
+        "dependencies": { "$ref": "#/$defs/dependencies" },
+        "governance": { "$ref": "#/$defs/governance" }
+      },
+      "patternProperties": { "^_comment": true },
+      "additionalProperties": false
+    },
+
+    "multiToolContract": {
+      "type": "object",
+      "required": ["contractVersion", "kind", "package", "tools"],
+      "properties": {
+        "$schema": { "type": "string" },
+        "contractVersion": { "type": "string" },
+        "kind": { "const": "multi-tool" },
+        "package": {
+          "type": "object",
+          "required": ["name", "description"],
+          "properties": {
+            "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+            "title": { "type": "string" },
+            "description": { "type": "string", "minLength": 20 },
+            "owner": { "type": "string" }
+          },
+          "patternProperties": { "^_comment": true },
+          "additionalProperties": false
+        },
+        "tools": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["interface", "binding", "governance"],
+            "properties": {
+              "interface": { "$ref": "#/$defs/interface" },
+              "binding": { "$ref": "#/$defs/binding" },
+              "validation": { "$ref": "#/$defs/validation" },
+              "dependencies": { "$ref": "#/$defs/dependencies" },
+              "governance": { "$ref": "#/$defs/governance" }
+            },
+            "patternProperties": { "^_comment": true },
+            "additionalProperties": false
+          }
+        }
+      },
+      "patternProperties": { "^_comment": true },
+      "additionalProperties": false
+    },
+
+    "openapiImportContract": {
+      "type": "object",
+      "required": ["contractVersion", "kind", "source", "operations"],
+      "properties": {
+        "$schema": { "type": "string" },
+        "contractVersion": { "type": "string" },
+        "kind": { "const": "openapi-import" },
+        "source": {
+          "type": "object",
+          "required": ["specUrl"],
+          "properties": {
+            "specUrl": { "type": "string", "format": "uri" },
+            "version": { "type": "string" }
+          },
+          "patternProperties": { "^_comment": true },
+          "additionalProperties": false
+        },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "operationIds to import from the spec."
+        },
+        "defaults": {
+          "type": "object",
+          "properties": {
+            "auth": { "$ref": "#/$defs/auth" },
+            "timeoutMs": { "type": "integer", "minimum": 1 },
+            "governance": { "$ref": "#/$defs/governance" }
+          },
+          "patternProperties": { "^_comment": true },
+          "additionalProperties": false
+        },
+        "overrides": {
+          "type": "object",
+          "description": "Keyed by operationId. Each value is a partial contract body merged over the defaults.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "interface": { "type": "object" },
+              "governance": { "$ref": "#/$defs/governance" },
+              "validation": { "$ref": "#/$defs/validation" }
+            },
+            "patternProperties": { "^_comment": true },
+            "additionalProperties": false
+          }
+        }
+      },
+      "patternProperties": { "^_comment": true },
+      "additionalProperties": false
+    },
+
+    "interface": {
+      "type": "object",
+      "description": "What the tool is. Maps 1:1 to the standard MCP tool shape, plus selection hints for the agent.",
+      "required": ["name", "description", "whenToUse", "input", "response"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "maxLength": 64,
+          "description": "snake_case. Becomes the MCP tool name, so it must be unique across the registry."
+        },
+        "title": { "type": "string", "maxLength": 80 },
+        "description": {
+          "type": "string",
+          "minLength": 20,
+          "description": "What the tool returns, in one sentence. The agent reads this to route."
+        },
+        "whenToUse": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 10 },
+          "description": "Concrete situations where this tool is the right pick."
+        },
+        "whenNotToUse": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 10 },
+          "description": "Situations where the agent should skip this tool."
+        },
+        "input": {
+          "type": "object",
+          "required": ["schema"],
+          "properties": {
+            "schema": { "$ref": "#/$defs/jsonSchemaObject" },
+            "forbidden": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Field names the caller must never be able to supply."
+            }
+          },
+          "patternProperties": { "^_comment": true },
+          "additionalProperties": false
+        },
+        "response": {
+          "type": "object",
+          "required": ["schema"],
+          "properties": {
+            "schema": { "$ref": "#/$defs/jsonSchemaObject" },
+            "ui": {
+              "type": "object",
+              "description": "Hint for how a client should render the result.",
+              "required": ["display"],
+              "properties": {
+                "display": { "enum": ["card", "table", "text", "json"] },
+                "title": { "type": "string" },
+                "primary": { "type": "string" },
+                "secondary": { "type": "string" }
+              },
+              "patternProperties": { "^_comment": true },
+              "additionalProperties": false
+            }
+          },
+          "patternProperties": { "^_comment": true },
+          "additionalProperties": false
+        }
+      },
+      "patternProperties": { "^_comment": true },
+      "additionalProperties": false
+    },
+
+    "jsonSchemaObject": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "const": "object" },
+        "properties": { "type": "object" },
+        "required": { "type": "array", "items": { "type": "string" } },
+        "additionalProperties": { "type": "boolean" }
+      }
+    },
+
+    "binding": {
+      "type": "object",
+      "description": "Where the tool actually calls.",
+      "required": ["type"],
+      "oneOf": [
+        {
+          "properties": {
+            "type": { "const": "http" },
+            "http": {
+              "type": "object",
+              "required": ["baseUrl", "method", "path"],
+              "properties": {
+                "baseUrl": { "type": "string", "format": "uri" },
+                "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+                "path": { "type": "string", "pattern": "^/" },
+                "auth": { "$ref": "#/$defs/auth" },
+                "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 60000 }
+              },
+              "patternProperties": { "^_comment": true },
+              "additionalProperties": false
+            }
+          },
+          "required": ["type", "http"],
+          "patternProperties": { "^_comment": true },
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": { "const": "none" },
+            "handler": {
+              "type": "string",
+              "pattern": "^builtin://[a-z][a-z0-9_]*$",
+              "description": "A pure function run inside the engine. No network, works offline."
+            }
+          },
+          "required": ["type", "handler"],
+          "patternProperties": { "^_comment": true },
+          "additionalProperties": false
+        }
+      ]
+    },
+
+    "auth": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["none", "bearer", "apiKey"] },
+        "secretRef": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "description": "Name of an environment secret. Never inline the value itself."
+        },
+        "header": { "type": "string" }
+      },
+      "patternProperties": { "^_comment": true },
+      "additionalProperties": false
+    },
+
+    "validation": {
+      "type": "object",
+      "required": ["rules"],
+      "properties": {
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["field", "match", "message"],
+            "properties": {
+              "field": { "type": "string" },
+              "match": { "type": "string", "description": "Regex the field value must match." },
+              "message": { "type": "string", "minLength": 5 }
+            },
+            "patternProperties": { "^_comment": true },
+            "additionalProperties": false
+          }
+        }
+      },
+      "patternProperties": { "^_comment": true },
+      "additionalProperties": false
+    },
+
+    "dependencies": {
+      "type": "array",
+      "description": "Declared for documentation. The POC engine does not resolve these.",
+      "items": {
+        "type": "object",
+        "required": ["contract", "reason"],
+        "properties": {
+          "contract": { "type": "string" },
+          "reason": { "type": "string", "minLength": 10 }
+        },
+        "patternProperties": { "^_comment": true },
+        "additionalProperties": false
+      }
+    },
+
+    "governance": {
+      "type": "object",
+      "description": "How the tool is allowed to run. This layer is ours -- MCP leaves it open.",
+      "required": ["annotations", "execution", "caching"],
+      "properties": {
+        "annotations": {
+          "type": "object",
+          "required": ["readOnly", "destructive", "idempotent", "openWorld"],
+          "properties": {
+            "readOnly": { "type": "boolean" },
+            "destructive": { "type": "boolean" },
+            "idempotent": { "type": "boolean" },
+            "openWorld": { "type": "boolean" }
+          },
+          "patternProperties": { "^_comment": true },
+          "additionalProperties": false
+        },
+        "execution": {
+          "type": "object",
+          "required": ["mode", "humanApproval"],
+          "properties": {
+            "mode": { "enum": ["direct", "propose-apply"] },
+            "humanApproval": { "enum": ["never", "required"] }
+          },
+          "patternProperties": { "^_comment": true },
+          "additionalProperties": false
+        },
+        "caching": {
+          "type": "object",
+          "required": ["cacheable"],
+          "properties": {
+            "cacheable": { "type": "boolean" },
+            "keyBy": { "type": "array", "items": { "type": "string" } },
+            "ttlSeconds": { "type": "integer", "minimum": 1, "maximum": 86400 }
+          },
+          "patternProperties": { "^_comment": true },
+          "additionalProperties": false
+        }
+      },
+      "patternProperties": { "^_comment": true },
+      "additionalProperties": false,
+
+      "allOf": [
+        {
+          "$comment": "A destructive tool must never be cacheable. Caching a write is a correctness bug, not a preference.",
+          "if": {
+            "properties": { "annotations": { "properties": { "destructive": { "const": true } } } },
+            "required": ["annotations"]
+          },
+          "then": {
+            "properties": { "caching": { "properties": { "cacheable": { "const": false } } } }
+          }
+        },
+        {
+          "$comment": "A read-only tool cannot also be destructive.",
+          "if": {
+            "properties": { "annotations": { "properties": { "readOnly": { "const": true } } } },
+            "required": ["annotations"]
+          },
+          "then": {
+            "properties": { "annotations": { "properties": { "destructive": { "const": false } } } }
+          }
+        },
+        {
+          "$comment": "propose-apply exists so a human can approve. Requiring the mode without the approval is a governance hole.",
+          "if": {
+            "properties": { "execution": { "properties": { "mode": { "const": "propose-apply" } } } },
+            "required": ["execution"]
+          },
+          "then": {
+            "properties": { "execution": { "properties": { "humanApproval": { "const": "required" } } } }
+          }
+        }
+      ]
+    }
+  }
+}

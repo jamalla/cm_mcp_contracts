@@ -1,0 +1,18 @@
+# The governance boundary. This repo is the traffic lane partners submit into,
+# so ownership is split by blast radius.
+#
+# Replace @owner / @reviewers with real handles or teams before enabling branch
+# protection -- CODEOWNERS silently matches nothing if the handle is not a
+# repository collaborator.
+
+# Constitution: rare, high-impact, owner only. A schema change re-validates
+# every existing contract, so it is never a routine review.
+/schema/**      @owner
+/templates/**   @owner
+
+# The gate itself. Weakening a check is as consequential as changing the rules.
+/scripts/**     @owner
+/.github/**     @owner
+
+# Case law: frequent, normal review. This is where submissions land.
+/contracts/**   @owner @reviewers

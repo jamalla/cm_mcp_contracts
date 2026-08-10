@@ -1,0 +1,331 @@
+"""Semantic gate: LLM-as-judge review of contract quality.
+
+The structural check (validate_contracts.py) proves a contract is well-formed.
+It cannot tell you the description is boilerplate, the whenToUse hints are
+useless, or the tool duplicates one already in the registry. That is this file.
+
+Two paths, same verdict shape:
+  * ANTHROPIC_API_KEY set   -> Claude judges each contract.
+  * no key                  -> deterministic heuristics.
+
+The fallback is not a stub. It exists so the gate is demonstrable offline and so
+a fork without repo secrets still gets a real signal on its PRs -- a check that
+silently passes when a key is missing is worse than no check.
+
+Usage:
+    python scripts/eval_contracts.py                     # all approved contracts
+    python scripts/eval_contracts.py path/a.json ...     # specific files
+    python scripts/eval_contracts.py --dir tests/fixtures/invalid --expect-fail
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+CONTRACTS_DIR = REPO_ROOT / "contracts"
+
+MODEL = "claude-opus-5"
+
+# Phrases that show up when someone fills the template without thinking.
+BOILERPLATE = ("todo", "tbd", "lorem ipsum", "description here", "xxx", "fixme")
+
+VERDICT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdict": {"type": "string", "enum": ["pass", "fail"]},
+        "reasons": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "One sentence per issue. Empty when the verdict is pass.",
+        },
+        "notes": {
+            "type": "string",
+            "description": "One short sentence of overall assessment.",
+        },
+    },
+    "required": ["verdict", "reasons", "notes"],
+    "additionalProperties": False,
+}
+
+JUDGE_SYSTEM = """You review tool contracts submitted to a shared MCP registry.
+
+An agent picks tools from this registry using only the contract's `description`,
+`whenToUse`, and `whenNotToUse`. A contract that is structurally valid but
+semantically vague makes the agent pick the wrong tool, which is the failure
+mode you exist to catch.
+
+Fail a contract when any of these hold:
+- The description is boilerplate, or too vague to route on.
+- whenToUse restates the description instead of naming concrete situations.
+- whenNotToUse is missing the obvious confusion with a sibling tool.
+- The tool duplicates an existing registry entry without a clear distinction.
+- The governance layer contradicts what the tool actually does -- e.g. something
+  that plainly writes marked readOnly, or an obviously destructive action set to
+  execution mode "direct".
+- Anything unsafe: a secret inlined instead of referenced, an over-broad input,
+  a tool that could exfiltrate data it has no business touching.
+
+Judge only what is in front of you. Do not fail a contract for style, naming
+preferences, or a missing optional field. Be specific in every reason: name the
+field and say what is wrong with it."""
+
+
+@dataclass
+class Verdict:
+    path: Path
+    verdict: str
+    reasons: list[str] = field(default_factory=list)
+    notes: str = ""
+    source: str = "heuristic"
+
+    @property
+    def passed(self) -> bool:
+        return self.verdict == "pass"
+
+
+def discover(paths: list[str] | None, directory: str | None) -> list[Path]:
+    if paths:
+        return [Path(p).resolve() for p in paths]
+    root = Path(directory).resolve() if directory else CONTRACTS_DIR
+    return sorted(root.rglob("*.json"))
+
+
+def iter_tools(contract: dict) -> list[dict]:
+    """A multi-tool package is judged one tool at a time, like the registry loads it."""
+    if contract.get("kind") == "multi-tool":
+        return contract.get("tools", [])
+    return [contract]
+
+
+def registry_names(exclude: Path) -> set[str]:
+    """Tool names already approved, so the judge can spot duplicates."""
+    names: set[str] = set()
+    for path in CONTRACTS_DIR.rglob("*.json"):
+        if path.resolve() == exclude.resolve():
+            continue
+        try:
+            contract = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        for tool in iter_tools(contract):
+            name = tool.get("interface", {}).get("name")
+            if name:
+                names.add(name)
+    return names
+
+
+# --------------------------------------------------------------------------
+# Heuristic path -- used when no API key is available.
+# --------------------------------------------------------------------------
+
+
+def judge_heuristically(path: Path, contract: dict) -> Verdict:
+    reasons: list[str] = []
+    existing = registry_names(exclude=path)
+
+    for tool in iter_tools(contract):
+        interface = tool.get("interface", {})
+        name = interface.get("name", "(unnamed)")
+        description = (interface.get("description") or "").strip()
+        governance = tool.get("governance", {})
+        annotations = governance.get("annotations", {})
+        caching = governance.get("caching", {})
+        binding = tool.get("binding", {})
+
+        lowered = description.lower()
+        if any(marker in lowered for marker in BOILERPLATE):
+            reasons.append(f"{name}: description still contains template boilerplate.")
+        if len(description.split()) < 6:
+            reasons.append(f"{name}: description is too short to route on.")
+
+        when_to_use = interface.get("whenToUse") or []
+        if not when_to_use:
+            reasons.append(f"{name}: no whenToUse hints, so the agent cannot route to it.")
+        for hint in when_to_use:
+            if hint.strip().lower() == lowered:
+                reasons.append(f"{name}: whenToUse just restates the description.")
+        if not interface.get("whenNotToUse"):
+            reasons.append(
+                f"{name}: no whenNotToUse hints -- say when the agent should pick something else."
+            )
+
+        if name in existing:
+            reasons.append(f"{name}: a tool with this name is already in the registry.")
+
+        # Governance contradictions the schema cannot express as a cross-field rule.
+        if annotations.get("readOnly") and binding.get("type") == "http":
+            method = binding.get("http", {}).get("method")
+            if method in {"POST", "PUT", "PATCH", "DELETE"}:
+                reasons.append(
+                    f"{name}: marked readOnly but the binding issues {method}."
+                )
+        if annotations.get("destructive") and caching.get("cacheable"):
+            reasons.append(f"{name}: destructive tools must never be cacheable.")
+        if caching.get("cacheable") and not caching.get("ttlSeconds"):
+            reasons.append(f"{name}: cacheable but no ttlSeconds, so entries never expire.")
+
+        # A secretRef should name an env var, never carry the secret itself.
+        auth = binding.get("http", {}).get("auth", {})
+        secret_ref = auth.get("secretRef", "")
+        if secret_ref and any(secret_ref.lower().startswith(p) for p in ("sk-", "pk-", "ghp_")):
+            reasons.append(f"{name}: secretRef looks like an inlined secret, not a reference.")
+
+    return Verdict(
+        path=path,
+        verdict="fail" if reasons else "pass",
+        reasons=reasons,
+        notes="Heuristic review (no ANTHROPIC_API_KEY set); no LLM judgment applied.",
+        source="heuristic",
+    )
+
+
+# --------------------------------------------------------------------------
+# LLM path.
+# --------------------------------------------------------------------------
+
+
+def judge_with_claude(path: Path, contract: dict) -> Verdict:
+    import anthropic
+
+    client = anthropic.Anthropic()
+    existing = sorted(registry_names(exclude=path))
+
+    prompt = (
+        f"Tools already in the registry: {', '.join(existing) or '(none)'}\n\n"
+        f"Contract under review ({path.name}):\n\n"
+        f"```json\n{json.dumps(contract, indent=2)}\n```"
+    )
+
+    response = client.messages.create(
+        model=MODEL,
+        max_tokens=16000,
+        system=JUDGE_SYSTEM,
+        output_config={
+            "effort": "medium",
+            "format": {"type": "json_schema", "schema": VERDICT_SCHEMA},
+        },
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    if response.stop_reason == "refusal":
+        return Verdict(
+            path=path,
+            verdict="fail",
+            reasons=["The judge declined to review this contract."],
+            notes="Model refusal -- review this submission by hand.",
+            source="claude",
+        )
+
+    text = next(block.text for block in response.content if block.type == "text")
+    payload = json.loads(text)
+    return Verdict(
+        path=path,
+        verdict=payload["verdict"],
+        reasons=payload.get("reasons", []),
+        notes=payload.get("notes", ""),
+        source="claude",
+    )
+
+
+def judge(path: Path, use_llm: bool) -> Verdict:
+    try:
+        contract = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return Verdict(path=path, verdict="fail", reasons=[f"not valid JSON -- {exc}"])
+
+    if not use_llm:
+        return judge_heuristically(path, contract)
+
+    try:
+        return judge_with_claude(path, contract)
+    except Exception as exc:  # noqa: BLE001 - the gate must not vanish on an API hiccup
+        fallback = judge_heuristically(path, contract)
+        fallback.notes = f"LLM judge unavailable ({type(exc).__name__}); fell back to heuristics."
+        return fallback
+
+
+def write_summary(verdicts: list[Verdict], source: str) -> None:
+    """Emit a markdown table to the PR's check summary when running in Actions."""
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+
+    lines = [f"## Semantic contract review ({source})", "", "| Contract | Verdict |", "|---|---|"]
+    for v in verdicts:
+        rel = v.path.relative_to(REPO_ROOT) if v.path.is_relative_to(REPO_ROOT) else v.path
+        lines.append(f"| `{rel}` | {'PASS' if v.passed else 'FAIL'} |")
+
+    for v in verdicts:
+        if v.passed:
+            continue
+        rel = v.path.relative_to(REPO_ROOT) if v.path.is_relative_to(REPO_ROOT) else v.path
+        lines += ["", f"### `{rel}`", ""] + [f"- {r}" for r in v.reasons]
+        if v.notes:
+            lines += ["", f"_{v.notes}_"]
+
+    with open(summary_path, "a", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="LLM-as-judge review of tool contracts.")
+    parser.add_argument("paths", nargs="*", help="Specific contract files.")
+    parser.add_argument("--dir", help="Review every .json under this directory instead.")
+    parser.add_argument(
+        "--expect-fail",
+        action="store_true",
+        help="Invert the exit code: pass only if every contract is rejected.",
+    )
+    parser.add_argument(
+        "--no-llm", action="store_true", help="Force the heuristic path even if a key is set."
+    )
+    args = parser.parse_args()
+
+    use_llm = bool(os.environ.get("ANTHROPIC_API_KEY")) and not args.no_llm
+    source = f"Claude {MODEL}" if use_llm else "deterministic heuristics"
+    print(f"Semantic review via {source}.\n")
+
+    files = discover(args.paths, args.dir)
+    if not files:
+        print("No contracts found to review.")
+        return 0
+
+    verdicts = [judge(path, use_llm) for path in files]
+
+    for v in verdicts:
+        rel = v.path.relative_to(REPO_ROOT) if v.path.is_relative_to(REPO_ROOT) else v.path
+        if v.passed:
+            print(f"PASS      {rel}")
+        else:
+            print(f"\nFAIL      {rel}")
+            for reason in v.reasons:
+                print(f"    - {reason}")
+            if v.notes:
+                print(f"    ({v.notes})")
+
+    write_summary(verdicts, source)
+
+    failures = sum(1 for v in verdicts if not v.passed)
+    print()
+    if args.expect_fail:
+        if failures == len(verdicts):
+            print(f"All {len(verdicts)} contract(s) rejected, as expected.")
+            return 0
+        print(f"Expected every contract to be rejected, but {len(verdicts) - failures} passed.")
+        return 1
+
+    if failures:
+        print(f"{failures} of {len(verdicts)} contract(s) failed semantic review.")
+        return 1
+    print(f"All {len(verdicts)} contract(s) passed semantic review.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

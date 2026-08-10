@@ -1,0 +1,43 @@
+{
+  "$schema": "../../../contracts/schema/tool-contract.v1.json",
+  "_comment": "REJECTION FIXTURE: a write tool marked cacheable, and propose-apply without human approval. Both are governance holes the schema catches as cross-field rules, not just missing keys.",
+  "contractVersion": "1.0.0",
+  "kind": "single-tool",
+  "interface": {
+    "name": "refund_order",
+    "title": "Refund Order",
+    "description": "Issues a full refund against a delivered order and notifies the customer.",
+    "whenToUse": ["The user asks for a refund on a delivered order."],
+    "whenNotToUse": ["The order has not been delivered yet."],
+    "input": {
+      "schema": {
+        "type": "object",
+        "properties": { "orderId": { "type": "string" } },
+        "required": ["orderId"],
+        "additionalProperties": false
+      }
+    },
+    "response": {
+      "schema": {
+        "type": "object",
+        "properties": { "refundId": { "type": "string" } },
+        "required": ["refundId"]
+      }
+    }
+  },
+  "binding": {
+    "type": "http",
+    "http": {
+      "baseUrl": "https://api.partner.example",
+      "method": "POST",
+      "path": "/v1/orders/{orderId}/refund",
+      "auth": { "type": "bearer", "secretRef": "PARTNER_ORDERS_TOKEN" },
+      "timeoutMs": 5000
+    }
+  },
+  "governance": {
+    "annotations": { "readOnly": false, "destructive": true, "idempotent": false, "openWorld": true },
+    "execution": { "mode": "propose-apply", "humanApproval": "never" },
+    "caching": { "cacheable": true, "ttlSeconds": 300 }
+  }
+}

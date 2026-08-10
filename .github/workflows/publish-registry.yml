@@ -1,0 +1,99 @@
+# Merge is approval. This turns the approved set into the artifact the engine
+# consumes, and tells the engine it exists.
+#
+# The registry is published to a rolling `registry-latest` release plus an
+# immutable `registry-<run>-<sha>` release. The rolling tag gives the engine a
+# stable URL; the immutable one means any pinned registry can always be traced
+# back to the commit that produced it.
+#
+# SETUP: the dispatch needs a token that can write to cm_mcp_engine. GITHUB_TOKEN
+# cannot reach another repository. Create a fine-grained PAT with
+# "Contents: read and write" on cm_mcp_engine and store it here as
+# ENGINE_DISPATCH_TOKEN. Without it the publish still succeeds and the engine
+# simply picks the change up on its next scheduled or manual run.
+name: publish-registry
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'contracts/**'
+      - 'schema/**'
+      - 'scripts/build_registry.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      # Lifted to env because the `secrets` context is not dependable inside a
+      # step-level `if`; `env` is. Also lets the whole job read it once.
+      DISPATCH_TOKEN: ${{ secrets.ENGINE_DISPATCH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Build the registry
+        id: build
+        run: |
+          uv run python scripts/build_registry.py
+          {
+            echo "tools=$(jq -r '.toolCount' dist/registry.generated.json)"
+            echo "sha256=$(sha256sum dist/registry.generated.json | cut -d' ' -f1)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Summarize
+        run: |
+          {
+            echo "## Registry published"
+            echo ""
+            echo "- tools: **${{ steps.build.outputs.tools }}**"
+            echo "- commit: \`${{ github.sha }}\`"
+            echo "- sha256: \`${{ steps.build.outputs.sha256 }}\`"
+            echo ""
+            jq -r '.toolNames[] | "- `" + . + "`"' dist/registry.generated.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish immutable release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: registry-${{ github.run_number }}-${{ github.sha }}
+          name: Registry ${{ github.run_number }} (${{ steps.build.outputs.tools }} tools)
+          body: |
+            Built from `${{ github.sha }}`.
+            sha256 `${{ steps.build.outputs.sha256 }}`
+          files: dist/registry.generated.json
+
+      - name: Move the rolling pointer
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: registry-latest
+          name: Registry (latest)
+          body: 'Rolling pointer. Built from `${{ github.sha }}`.'
+          files: dist/registry.generated.json
+
+      # The engine must verify it can execute this registry before anyone
+      # depends on it. That check lives in the engine repo, because only the
+      # engine knows which builtins and bindings it implements.
+      - name: Tell cm_mcp_engine there is a new registry
+        if: env.DISPATCH_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ env.DISPATCH_TOKEN }}
+        run: |
+          gh api "repos/${{ github.repository_owner }}/cm_mcp_engine/dispatches" \
+            -f event_type=contracts-updated \
+            -F "client_payload[tag]=registry-${{ github.run_number }}-${{ github.sha }}" \
+            -F "client_payload[commit]=${{ github.sha }}" \
+            -F "client_payload[tools]=${{ steps.build.outputs.tools }}" \
+            -F "client_payload[sha256]=${{ steps.build.outputs.sha256 }}"
+
+      - name: Note when no dispatch token is configured
+        if: env.DISPATCH_TOKEN == ''
+        run: |
+          echo "::warning::ENGINE_DISPATCH_TOKEN is not set, so cm_mcp_engine was not notified. \
+          It will pick this registry up on its next scheduled or manual consume-registry run."

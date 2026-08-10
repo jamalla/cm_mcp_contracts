@@ -1,0 +1,104 @@
+{
+  "$schema": "../schema/tool-contract.v1.json",
+  "_comment": "STARTER FILE. Copy me into contracts/examples/<your_tool_name>.json, fill every TODO, delete the _comment keys, and open a PR. Your editor will red-underline mistakes before CI ever sees them.",
+
+  "contractVersion": "1.0.0",
+  "kind": "single-tool",
+
+  "interface": {
+    "_comment": "WHAT THE TOOL IS. This layer maps 1:1 to the standard MCP tool shape, so any MCP client can consume it.",
+
+    "name": "TODO_snake_case_name",
+    "title": "TODO Human Readable Title",
+    "description": "TODO one sentence, at least 20 characters, saying what this returns. The agent reads this to decide whether to pick you.",
+
+    "_comment_hints": "whenToUse / whenNotToUse are the selection hints. Be concrete -- these are the difference between the agent picking you correctly and picking you by accident.",
+    "whenToUse": [
+      "TODO a concrete situation where this tool is the right pick."
+    ],
+    "whenNotToUse": [
+      "TODO a situation where the agent should reach for something else."
+    ],
+
+    "input": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "TODO_field": { "type": "string", "description": "TODO what this field is." }
+        },
+        "required": ["TODO_field"],
+        "additionalProperties": false
+      },
+      "_comment_forbidden": "Optional. Field names a caller must never be able to supply.",
+      "forbidden": []
+    },
+
+    "response": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "TODO_field": { "type": "string" }
+        },
+        "required": ["TODO_field"]
+      },
+      "_comment_ui": "Optional render hint. {braces} interpolate fields from the response.",
+      "ui": {
+        "display": "card",
+        "title": "TODO {TODO_field}",
+        "primary": "{TODO_field}"
+      }
+    }
+  },
+
+  "binding": {
+    "_comment": "WHERE IT CALLS. Use type 'http' for a real API, or type 'none' with a builtin:// handler for a pure function that runs inside the engine with no network.",
+    "type": "http",
+    "http": {
+      "baseUrl": "https://api.your-service.example",
+      "method": "GET",
+      "path": "/v1/TODO/{TODO_field}",
+      "_comment_auth": "Reference a secret by NAME. Never paste the value into a contract.",
+      "auth": { "type": "bearer", "secretRef": "TODO_SECRET_NAME" },
+      "timeoutMs": 5000
+    }
+  },
+
+  "validation": {
+    "_comment": "Optional. These regexes are compiled into the generated code as real guards.",
+    "rules": [
+      {
+        "field": "TODO_field",
+        "match": "^TODO-[0-9]+$",
+        "message": "TODO_field must look like TODO-123"
+      }
+    ]
+  },
+
+  "_comment_dependencies": "Declared for documentation only -- the POC engine does not resolve these.",
+  "dependencies": [],
+
+  "governance": {
+    "_comment": "HOW IT IS ALLOWED TO RUN. This layer is ours; MCP leaves it open.",
+
+    "_comment_annotations": "readOnly drives caching. A destructive tool is never cached, and the schema enforces that.",
+    "annotations": {
+      "readOnly": true,
+      "destructive": false,
+      "idempotent": true,
+      "openWorld": true
+    },
+
+    "_comment_execution": "'direct' runs immediately. 'propose-apply' returns a proposal and waits for a human -- it requires humanApproval 'required'.",
+    "execution": {
+      "mode": "direct",
+      "humanApproval": "never"
+    },
+
+    "_comment_caching": "keyBy picks which args form the cache key. Omit it to key on all of them.",
+    "caching": {
+      "cacheable": true,
+      "keyBy": ["TODO_field"],
+      "ttlSeconds": 300
+    }
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "$schema": "../schema/tool-contract.v1.json",
+  "_comment": "STARTER FILE for shipping several related tools as one package. Copy me into contracts/examples/<package_name>.multi.json. Each entry in 'tools' is a complete tool body -- same interface + binding + governance layers as a single-tool contract. The registry expands the package into individual tools at load time, so each one still gets its own MCP tool name.",
+
+  "contractVersion": "1.0.0",
+  "kind": "multi-tool",
+
+  "package": {
+    "_comment": "Metadata about the group. The package name does not become a tool name.",
+    "name": "TODO_package_name",
+    "title": "TODO Package Title",
+    "description": "TODO at least 20 characters describing what this group of tools has in common.",
+    "owner": "TODO-team-name"
+  },
+
+  "tools": [
+    {
+      "_comment": "Copy this whole block per tool. Two are shown so the array shape is obvious.",
+      "interface": {
+        "name": "TODO_first_tool",
+        "title": "TODO First Tool",
+        "description": "TODO one sentence, at least 20 characters, about what this returns.",
+        "whenToUse": ["TODO a concrete situation where this tool is the right pick."],
+        "whenNotToUse": ["TODO a situation where the agent should skip this tool."],
+        "input": {
+          "schema": {
+            "type": "object",
+            "properties": { "TODO_field": { "type": "string", "description": "TODO." } },
+            "required": ["TODO_field"],
+            "additionalProperties": false
+          }
+        },
+        "response": {
+          "schema": {
+            "type": "object",
+            "properties": { "TODO_field": { "type": "string" } },
+            "required": ["TODO_field"]
+          },
+          "ui": { "display": "card", "title": "TODO", "primary": "{TODO_field}" }
+        }
+      },
+      "binding": {
+        "_comment": "type 'none' runs a pure function inside the engine -- no network, works offline.",
+        "type": "none",
+        "handler": "builtin://todo_first_tool"
+      },
+      "dependencies": [],
+      "governance": {
+        "annotations": { "readOnly": true, "destructive": false, "idempotent": true, "openWorld": false },
+        "execution": { "mode": "direct", "humanApproval": "never" },
+        "caching": { "cacheable": true, "keyBy": ["TODO_field"], "ttlSeconds": 600 }
+      }
+    },
+    {
+      "interface": {
+        "name": "TODO_second_tool",
+        "title": "TODO Second Tool",
+        "description": "TODO one sentence, at least 20 characters, about what this returns.",
+        "whenToUse": ["TODO a concrete situation where this tool is the right pick."],
+        "whenNotToUse": ["TODO a situation where the agent should skip this tool."],
+        "input": {
+          "schema": {
+            "type": "object",
+            "properties": { "TODO_field": { "type": "string", "description": "TODO." } },
+            "required": ["TODO_field"],
+            "additionalProperties": false
+          }
+        },
+        "response": {
+          "schema": {
+            "type": "object",
+            "properties": { "TODO_field": { "type": "string" } },
+            "required": ["TODO_field"]
+          }
+        }
+      },
+      "binding": { "type": "none", "handler": "builtin://todo_second_tool" },
+      "dependencies": [],
+      "governance": {
+        "annotations": { "readOnly": true, "destructive": false, "idempotent": true, "openWorld": false },
+        "execution": { "mode": "direct", "humanApproval": "never" },
+        "caching": { "cacheable": true, "keyBy": ["TODO_field"], "ttlSeconds": 600 }
+      }
+    }
+  ]
+}

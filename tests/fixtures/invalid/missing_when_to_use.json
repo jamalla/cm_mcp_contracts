@@ -1,0 +1,41 @@
+{
+  "$schema": "../../../contracts/schema/tool-contract.v1.json",
+  "_comment": "REJECTION FIXTURE: no whenToUse hints. The agent would have nothing to route on.",
+  "contractVersion": "1.0.0",
+  "kind": "single-tool",
+  "interface": {
+    "name": "get_invoice_pdf",
+    "title": "Get Invoice PDF",
+    "description": "Returns a download link for the invoice attached to an order.",
+    "input": {
+      "schema": {
+        "type": "object",
+        "properties": { "orderId": { "type": "string" } },
+        "required": ["orderId"],
+        "additionalProperties": false
+      }
+    },
+    "response": {
+      "schema": {
+        "type": "object",
+        "properties": { "url": { "type": "string" } },
+        "required": ["url"]
+      }
+    }
+  },
+  "binding": {
+    "type": "http",
+    "http": {
+      "baseUrl": "https://api.partner.example",
+      "method": "GET",
+      "path": "/v1/orders/{orderId}/invoice",
+      "auth": { "type": "bearer", "secretRef": "PARTNER_ORDERS_TOKEN" },
+      "timeoutMs": 5000
+    }
+  },
+  "governance": {
+    "annotations": { "readOnly": true, "destructive": false, "idempotent": true, "openWorld": true },
+    "execution": { "mode": "direct", "humanApproval": "never" },
+    "caching": { "cacheable": true, "ttlSeconds": 300 }
+  }
+}
