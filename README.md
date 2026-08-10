@@ -85,6 +85,10 @@ One endpoint, one tool, one file. Three layers:
 
 ## Submit a tool — step by step
 
+> Delegating the submission to someone (or something) else? Hand them the ready-made briefing
+> in [docs/contributor-prompt.md](docs/contributor-prompt.md) — a worked example for
+> `list_categories`, adaptable to any endpoint by swapping three lines.
+
 1. **Pick the endpoint.** For Salla, its docs page ([docs.salla.dev](https://docs.salla.dev/))
    gives you the method, path and scopes ready to copy — using them saves your reviewer
    guesswork, and `docsUrl` is the cheapest traceability you can offer.
