@@ -98,7 +98,16 @@
         "dataPath": "data",
         "collection": true,
         "pagination": "standard",
-        "successStatuses": [200]
+        "successStatuses": [200],
+        "errors": {
+          "messagePath": "error.message",
+          "statuses": [
+            {
+              "status": 401,
+              "meaning": "The store's access token is missing or does not carry the categories.read scope, so the categories cannot be read until the app's authorization is fixed."
+            }
+          ]
+        }
       },
 
       "timeoutMs": 10000
