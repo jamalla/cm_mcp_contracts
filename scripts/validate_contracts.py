@@ -205,7 +205,7 @@ def consistency_problems(contract: dict) -> list[str]:
     http = binding.get("http") or {}
     params = http.get("parameters") or {}
 
-    arguments = set((body.get("interface", {}).get("input", {}).get("schema", {}).get("properties") or {}))
+    arguments = set(body.get("interface", {}).get("input", {}).get("schema", {}).get("properties") or {})
     required_arguments = set(
         body.get("interface", {}).get("input", {}).get("schema", {}).get("required") or []
     )

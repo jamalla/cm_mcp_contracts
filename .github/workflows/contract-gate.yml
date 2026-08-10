@@ -16,6 +16,11 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Lint
+        # Unused code, commented-out code, and the small decay that accumulates.
+        # Cheap to keep green now; expensive to reintroduce later.
+        run: uvx ruff check .
+
       - name: Validate every approved contract against the meta-schema
         # The whole set, not just the diff: tightening the schema must not leave
         # an older contract silently non-conforming.

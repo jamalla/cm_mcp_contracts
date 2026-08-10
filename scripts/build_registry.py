@@ -35,7 +35,7 @@ import json
 import shutil
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
@@ -129,7 +129,7 @@ def main() -> int:
         return 1
 
     index = {
-        "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "generatedAt": datetime.now(UTC).isoformat(timespec="seconds"),
         "sourceRepo": "cm_mcp_contracts",
         "sourceCommit": git_sha(),
         "schemaId": schema.get("$id"),
