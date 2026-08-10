@@ -275,8 +275,8 @@ mapping, per-merchant token resolution) — tracked in `cm_mcp_engine`.
 
 ## Maintainer setup
 
-Secrets: `ANTHROPIC_API_KEY` (optional — upgrades the semantic gate from heuristics to
-LLM-as-judge), `ENGINE_DISPATCH_TOKEN` (fine-grained PAT, *Contents: read and write* on
+Secrets: `OPENAI_API_KEY` (optional — upgrades the semantic gate from heuristics to
+LLM-as-judge; `CM_JUDGE_MODEL` overrides the model), `ENGINE_DISPATCH_TOKEN` (fine-grained PAT, *Contents: read and write* on
 `cm_mcp_engine`; without it the engine falls back to its daily scheduled pull). Replace
 `@owner`/`@reviewers` in [CODEOWNERS](CODEOWNERS) with real handles, and protect `main` requiring
 the `structural`, `semantic`, and `buildable` checks plus a CODEOWNERS review on `contracts/**`.

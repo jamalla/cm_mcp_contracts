@@ -5,7 +5,7 @@ description = "Tool contracts for the code-mode MCP platform: the rulebook, temp
 requires-python = ">=3.11"
 dependencies = [
     "jsonschema>=4.23",
-    "anthropic>=0.40",
+    "openai>=1.50",
 ]
 
 [project.optional-dependencies]

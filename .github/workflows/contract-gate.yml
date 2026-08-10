@@ -44,7 +44,7 @@ jobs:
         # which is what happens on fork PRs. The check still means something
         # there rather than silently passing.
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: uv run python scripts/eval_contracts.py
 
   buildable:

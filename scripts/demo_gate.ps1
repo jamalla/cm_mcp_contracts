@@ -33,8 +33,8 @@ try {
 
     Write-Host ''
     Write-Host 'Gate demo complete: bad contracts rejected with reasons, good ones merged.' -ForegroundColor Green
-    if (-not $env:ANTHROPIC_API_KEY) {
-        Write-Host 'Note: semantic review ran on deterministic heuristics (no ANTHROPIC_API_KEY set).' -ForegroundColor Yellow
+    if (-not $env:OPENAI_API_KEY) {
+        Write-Host 'Note: semantic review ran on deterministic heuristics (no OPENAI_API_KEY set).' -ForegroundColor Yellow
     }
 }
 finally {

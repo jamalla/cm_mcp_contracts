@@ -5,8 +5,8 @@ It cannot tell you the description is boilerplate, the whenToUse hints are
 useless, or the tool duplicates one already in the registry. That is this file.
 
 Two paths, same verdict shape:
-  * ANTHROPIC_API_KEY set   -> Claude judges each contract.
-  * no key                  -> deterministic heuristics.
+  * OPENAI_API_KEY set   -> an OpenAI model judges each contract.
+  * no key               -> deterministic heuristics.
 
 The fallback is not a stub. It exists so the gate is demonstrable offline and so
 a fork without repo secrets still gets a real signal on its PRs -- a check that
@@ -30,7 +30,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONTRACTS_DIR = REPO_ROOT / "contracts"
 
-MODEL = "claude-opus-5"
+# Override with CM_JUDGE_MODEL when OpenAI ships a better fit; a bad model id
+# degrades to the heuristic path rather than breaking the gate.
+MODEL = os.environ.get("CM_JUDGE_MODEL", "gpt-5.1")
 
 # Phrases that show up when someone fills the template without thinking.
 BOILERPLATE = ("todo", "tbd", "lorem ipsum", "description here", "xxx", "fixme")
@@ -197,7 +199,7 @@ def judge_heuristically(path: Path, contract: dict) -> Verdict:
         path=path,
         verdict="fail" if reasons else "pass",
         reasons=reasons,
-        notes="Heuristic review (no ANTHROPIC_API_KEY set); no LLM judgment applied.",
+        notes="Heuristic review (no OPENAI_API_KEY set); no LLM judgment applied.",
         source="heuristic",
     )
 
@@ -207,10 +209,10 @@ def judge_heuristically(path: Path, contract: dict) -> Verdict:
 # --------------------------------------------------------------------------
 
 
-def judge_with_claude(path: Path, contract: dict) -> Verdict:
-    import anthropic
+def judge_with_openai(path: Path, contract: dict) -> Verdict:
+    from openai import OpenAI
 
-    client = anthropic.Anthropic()
+    client = OpenAI()
     existing = sorted(registry_names(exclude=path))
 
     prompt = (
@@ -219,34 +221,41 @@ def judge_with_claude(path: Path, contract: dict) -> Verdict:
         f"```json\n{json.dumps(contract, indent=2)}\n```"
     )
 
-    response = client.messages.create(
+    # strict json_schema output: the model must return exactly the verdict shape,
+    # so there is no free-text parsing to get wrong.
+    response = client.chat.completions.create(
         model=MODEL,
-        max_tokens=16000,
-        system=JUDGE_SYSTEM,
-        output_config={
-            "effort": "medium",
-            "format": {"type": "json_schema", "schema": VERDICT_SCHEMA},
+        messages=[
+            {"role": "system", "content": JUDGE_SYSTEM},
+            {"role": "user", "content": prompt},
+        ],
+        response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": "contract_verdict",
+                "strict": True,
+                "schema": VERDICT_SCHEMA,
+            },
         },
-        messages=[{"role": "user", "content": prompt}],
     )
 
-    if response.stop_reason == "refusal":
+    message = response.choices[0].message
+    if getattr(message, "refusal", None):
         return Verdict(
             path=path,
             verdict="fail",
             reasons=["The judge declined to review this contract."],
             notes="Model refusal -- review this submission by hand.",
-            source="claude",
+            source="openai",
         )
 
-    text = next(block.text for block in response.content if block.type == "text")
-    payload = json.loads(text)
+    payload = json.loads(message.content)
     return Verdict(
         path=path,
         verdict=payload["verdict"],
         reasons=payload.get("reasons", []),
         notes=payload.get("notes", ""),
-        source="claude",
+        source="openai",
     )
 
 
@@ -260,7 +269,7 @@ def judge(path: Path, use_llm: bool) -> Verdict:
         return judge_heuristically(path, contract)
 
     try:
-        return judge_with_claude(path, contract)
+        return judge_with_openai(path, contract)
     except Exception as exc:  # noqa: BLE001 - the gate must not vanish on an API hiccup
         fallback = judge_heuristically(path, contract)
         fallback.notes = f"LLM judge unavailable ({type(exc).__name__}); fell back to heuristics."
@@ -304,8 +313,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    use_llm = bool(os.environ.get("ANTHROPIC_API_KEY")) and not args.no_llm
-    source = f"Claude {MODEL}" if use_llm else "deterministic heuristics"
+    use_llm = bool(os.environ.get("OPENAI_API_KEY")) and not args.no_llm
+    source = f"OpenAI {MODEL}" if use_llm else "deterministic heuristics"
     print(f"Semantic review via {source}.\n")
 
     files = discover(args.paths, args.dir)
