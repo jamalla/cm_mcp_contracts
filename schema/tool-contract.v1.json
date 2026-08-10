@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contract-mcp.example/schemas/tool-contract.v1.json",
-  "title": "Tool Contract v1",
-  "description": "The rulebook. Defines what a valid tool contract must contain. CI validates every submitted contract against this file, and contributors get IDE autocomplete from it via the $schema key.",
+  "title": "Salla Tool Contract v1",
+  "description": "The rulebook. A contract turns one Salla Admin API endpoint into an MCP tool, without anyone writing server code. CI validates every submission against this file, and contributors get editor validation from it via the $schema key.",
 
   "type": "object",
   "required": ["contractVersion", "kind"],
@@ -11,11 +11,9 @@
     "contractVersion": {
       "type": "string",
       "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
-      "description": "Semver. Bumping this retires cached generated code for the tool."
+      "description": "Semver for THIS contract, not for Salla. Bumping it retires the engine's cached generated code."
     },
-    "kind": {
-      "enum": ["single-tool", "multi-tool", "openapi-import"]
-    }
+    "kind": { "enum": ["single-tool", "multi-tool", "openapi-import"] }
   },
 
   "oneOf": [
@@ -39,11 +37,13 @@
         "governance": { "$ref": "#/$defs/governance" }
       },
       "patternProperties": { "^_comment": true },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [{ "$ref": "#/$defs/methodGovernanceRules" }]
     },
 
     "multiToolContract": {
       "type": "object",
+      "description": "Several endpoints from one Salla domain, shipped and reviewed together.",
       "required": ["contractVersion", "kind", "package", "tools"],
       "properties": {
         "$schema": { "type": "string" },
@@ -56,6 +56,10 @@
             "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
             "title": { "type": "string" },
             "description": { "type": "string", "minLength": 20 },
+            "sallaDomain": {
+              "type": "string",
+              "description": "The Salla API tag these endpoints belong to, e.g. Coupons, Orders, Products."
+            },
             "owner": { "type": "string" }
           },
           "patternProperties": { "^_comment": true },
@@ -75,7 +79,8 @@
               "governance": { "$ref": "#/$defs/governance" }
             },
             "patternProperties": { "^_comment": true },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "allOf": [{ "$ref": "#/$defs/methodGovernanceRules" }]
           }
         }
       },
@@ -85,6 +90,7 @@
 
     "openapiImportContract": {
       "type": "object",
+      "description": "Accelerator: name Salla operationIds and let a converter emit full single-tool contracts, which then flow through this same gate. No converter consumes this yet.",
       "required": ["contractVersion", "kind", "source", "operations"],
       "properties": {
         "$schema": { "type": "string" },
@@ -103,13 +109,14 @@
         "operations": {
           "type": "array",
           "minItems": 1,
-          "items": { "type": "string" },
-          "description": "operationIds to import from the spec."
+          "items": {
+            "type": "string",
+            "description": "A Salla operationId, e.g. List-Coupons, Coupon-Details."
+          }
         },
         "defaults": {
           "type": "object",
           "properties": {
-            "auth": { "$ref": "#/$defs/auth" },
             "timeoutMs": { "type": "integer", "minimum": 1 },
             "governance": { "$ref": "#/$defs/governance" }
           },
@@ -118,7 +125,7 @@
         },
         "overrides": {
           "type": "object",
-          "description": "Keyed by operationId. Each value is a partial contract body merged over the defaults.",
+          "description": "Keyed by operationId. Every key here is treated as an operationId, so put explanatory comments outside this object.",
           "additionalProperties": {
             "type": "object",
             "properties": {
@@ -137,14 +144,14 @@
 
     "interface": {
       "type": "object",
-      "description": "What the tool is. Maps 1:1 to the standard MCP tool shape, plus selection hints for the agent.",
+      "description": "What the tool is. Maps 1:1 to the standard MCP tool shape, plus the selection hints an agent routes on.",
       "required": ["name", "description", "whenToUse", "input", "response"],
       "properties": {
         "name": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9_]*$",
           "maxLength": 64,
-          "description": "snake_case. Becomes the MCP tool name, so it must be unique across the registry."
+          "description": "snake_case. Becomes the MCP tool name, so it must be unique across the whole registry."
         },
         "title": { "type": "string", "maxLength": 80 },
         "description": {
@@ -161,17 +168,20 @@
         "whenNotToUse": {
           "type": "array",
           "items": { "type": "string", "minLength": 10 },
-          "description": "Situations where the agent should skip this tool."
+          "description": "Situations where the agent should reach for a sibling tool instead. Name the sibling."
         },
         "input": {
           "type": "object",
           "required": ["schema"],
           "properties": {
-            "schema": { "$ref": "#/$defs/jsonSchemaObject" },
+            "schema": {
+              "$ref": "#/$defs/jsonSchemaObject",
+              "description": "The TOOL's arguments, not Salla's. Expose only the parameters an agent should set -- a contract narrowing a 20-filter endpoint to three useful ones is doing its job."
+            },
             "forbidden": {
               "type": "array",
               "items": { "type": "string" },
-              "description": "Field names the caller must never be able to supply."
+              "description": "Argument names a caller must never be able to supply."
             }
           },
           "patternProperties": { "^_comment": true },
@@ -181,10 +191,13 @@
           "type": "object",
           "required": ["schema"],
           "properties": {
-            "schema": { "$ref": "#/$defs/jsonSchemaObject" },
+            "schema": {
+              "$ref": "#/$defs/jsonSchemaObject",
+              "description": "Shape of the UNWRAPPED payload. Describe what is inside Salla's `data`, never the {status, success, data} envelope."
+            },
             "ui": {
               "type": "object",
-              "description": "Hint for how a client should render the result.",
+              "description": "Hint for how a client should render the result. {braces} interpolate response fields.",
               "required": ["display"],
               "properties": {
                 "display": { "enum": ["card", "table", "text", "json"] },
@@ -222,22 +235,10 @@
       "oneOf": [
         {
           "properties": {
-            "type": { "const": "http" },
-            "http": {
-              "type": "object",
-              "required": ["baseUrl", "method", "path"],
-              "properties": {
-                "baseUrl": { "type": "string", "format": "uri" },
-                "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
-                "path": { "type": "string", "pattern": "^/" },
-                "auth": { "$ref": "#/$defs/auth" },
-                "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 60000 }
-              },
-              "patternProperties": { "^_comment": true },
-              "additionalProperties": false
-            }
+            "type": { "const": "salla" },
+            "salla": { "$ref": "#/$defs/sallaBinding" }
           },
-          "required": ["type", "http"],
+          "required": ["type", "salla"],
           "patternProperties": { "^_comment": true },
           "additionalProperties": false
         },
@@ -247,7 +248,7 @@
             "handler": {
               "type": "string",
               "pattern": "^builtin://[a-z][a-z0-9_]*$",
-              "description": "A pure function run inside the engine. No network, works offline."
+              "description": "A pure function run inside the engine -- no network, no token. For helpers that compute rather than fetch."
             }
           },
           "required": ["type", "handler"],
@@ -257,24 +258,204 @@
       ]
     },
 
-    "auth": {
+    "sallaBinding": {
       "type": "object",
-      "required": ["type"],
+      "description": "One Salla Admin API endpoint. The base URL is deliberately absent: the engine owns it, so a contract cannot pin production and cannot drift when Salla moves.",
+      "required": ["operationId", "method", "path", "auth", "response"],
       "properties": {
-        "type": { "enum": ["none", "bearer", "apiKey"] },
-        "secretRef": {
+        "operationId": {
           "type": "string",
-          "pattern": "^[A-Z][A-Z0-9_]*$",
-          "description": "Name of an environment secret. Never inline the value itself."
+          "pattern": "^[A-Za-z][A-Za-z0-9-]*$",
+          "description": "Salla's own operationId, e.g. List-Coupons. The traceable link back to their OpenAPI spec."
         },
-        "header": { "type": "string" }
+        "summary": {
+          "type": "string",
+          "description": "Salla's summary for the endpoint, copied verbatim so a reviewer can compare without leaving the diff."
+        },
+        "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+        "path": {
+          "type": "string",
+          "pattern": "^/",
+          "description": "Salla's path, placeholders included and unchanged, e.g. /coupons/{coupon_id}."
+        },
+        "apiVersion": {
+          "type": "string",
+          "enum": ["admin/v2"],
+          "description": "Which Salla API surface. Defaults to admin/v2."
+        },
+        "docsUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "Link to this endpoint on docs.salla.dev, so a reviewer can check the contract against the source."
+        },
+        "auth": { "$ref": "#/$defs/sallaAuth" },
+        "parameters": { "$ref": "#/$defs/sallaParameters" },
+        "response": { "$ref": "#/$defs/sallaResponse" },
+        "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 60000 },
+        "deprecation": {
+          "type": "object",
+          "description": "Salla deprecates fields and endpoints on dated notices. Record it here so the registry can be audited before the sunset.",
+          "required": ["reason"],
+          "properties": {
+            "reason": { "type": "string", "minLength": 10 },
+            "sunsetDate": { "type": "string", "format": "date" },
+            "replacedBy": { "type": "string" }
+          },
+          "patternProperties": { "^_comment": true },
+          "additionalProperties": false
+        }
       },
       "patternProperties": { "^_comment": true },
       "additionalProperties": false
     },
 
+    "sallaAuth": {
+      "type": "object",
+      "description": "Salla apps act on behalf of a merchant, so there is no secret to name here. The engine resolves the installing store's OAuth token at call time; the contract only declares which scopes that token must carry.",
+      "required": ["scopes"],
+      "properties": {
+        "scopes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*\\.(read|read_write)$",
+            "description": "A Salla scope, e.g. coupons.read or orders.read_write."
+          },
+          "description": "Scopes Salla will accept for this endpoint. Salla returns 401 naming the scopes it wanted, so copy them from the endpoint's docs."
+        }
+      },
+      "patternProperties": { "^_comment": true },
+      "additionalProperties": false
+    },
+
+    "sallaParameters": {
+      "type": "object",
+      "description": "How the tool's arguments become a Salla request. `name` is Salla's wire name; `from` is the tool argument feeding it, defaulting to the same string.",
+      "properties": {
+        "path": {
+          "type": "array",
+          "description": "Every {placeholder} in `path` needs an entry. Path parameters are always required.",
+          "items": { "$ref": "#/$defs/parameterMapping" }
+        },
+        "query": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/queryParameterMapping" }
+        },
+        "body": {
+          "type": "object",
+          "required": ["mode"],
+          "properties": {
+            "mode": {
+              "enum": ["none", "passthrough", "mapped"],
+              "description": "none: send no body. passthrough: every argument not consumed by path or query becomes the JSON body as-is. mapped: only the fields listed below, renamed."
+            },
+            "fields": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/parameterMapping" }
+            }
+          },
+          "patternProperties": { "^_comment": true },
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "$comment": "mapped without fields sends an empty body, which is never what the author meant.",
+              "if": { "properties": { "mode": { "const": "mapped" } }, "required": ["mode"] },
+              "then": { "required": ["fields"] }
+            }
+          ]
+        }
+      },
+      "patternProperties": { "^_comment": true },
+      "additionalProperties": false
+    },
+
+    "parameterMapping": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The name Salla expects on the wire, e.g. coupon_id."
+        },
+        "from": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The tool argument to read. Omit when it matches `name`."
+        },
+        "description": { "type": "string" }
+      },
+      "patternProperties": { "^_comment": true },
+      "additionalProperties": false
+    },
+
+    "queryParameterMapping": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "from": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "style": {
+          "enum": ["single", "bracket", "repeat", "csv"],
+          "description": "How an array value is serialized. Salla runs Laravel, so array filters use bracket style (status[]=a&status[]=b) unless an endpoint documents otherwise. Scalars use single."
+        },
+        "constant": {
+          "description": "A fixed value always sent, instead of reading a tool argument. Use it to pin a filter the agent must not control.",
+          "type": ["string", "number", "boolean"]
+        }
+      },
+      "patternProperties": { "^_comment": true },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "$comment": "A constant is not read from an argument, so pairing it with `from` is contradictory.",
+          "if": { "required": ["constant"] },
+          "then": { "not": { "required": ["from"] } }
+        }
+      ]
+    },
+
+    "sallaResponse": {
+      "type": "object",
+      "description": "Salla wraps every response in {status, success, data} and adds `pagination` on lists. The engine unwraps using this, so the agent and the UI see the payload rather than the envelope.",
+      "required": ["dataPath"],
+      "properties": {
+        "dataPath": {
+          "type": "string",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_.]*$",
+          "description": "Dotted path to the payload inside the envelope. Almost always `data`."
+        },
+        "collection": {
+          "type": "boolean",
+          "description": "True when `data` is an array. Drives list rendering and tells the agent this returns many rows."
+        },
+        "pagination": {
+          "enum": ["none", "standard"],
+          "description": "standard means Salla returns its {count, total, perPage, currentPage, totalPages} object alongside the data."
+        },
+        "successStatuses": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "integer", "minimum": 200, "maximum": 299 },
+          "description": "Which HTTP statuses count as success. Salla returns 201 on some creates and 202 on deletes."
+        }
+      },
+      "patternProperties": { "^_comment": true },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "$comment": "A paginated response is a collection by definition; saying otherwise misleads the agent about what it gets back.",
+          "if": { "properties": { "pagination": { "const": "standard" } }, "required": ["pagination"] },
+          "then": { "properties": { "collection": { "const": true } }, "required": ["collection"] }
+        }
+      ]
+    },
+
     "validation": {
       "type": "object",
+      "description": "Guards compiled into the generated code, so a malformed argument fails locally instead of costing a round trip and a Salla 422.",
       "required": ["rules"],
       "properties": {
         "rules": {
@@ -284,7 +465,7 @@
             "required": ["field", "match", "message"],
             "properties": {
               "field": { "type": "string" },
-              "match": { "type": "string", "description": "Regex the field value must match." },
+              "match": { "type": "string", "description": "Regex the argument value must match." },
               "message": { "type": "string", "minLength": 5 }
             },
             "patternProperties": { "^_comment": true },
@@ -382,6 +563,215 @@
           },
           "then": {
             "properties": { "execution": { "properties": { "humanApproval": { "const": "required" } } } }
+          }
+        },
+        {
+          "$comment": "Only a read-only tool may be cacheable. Without this, a write could be marked cacheable and merely happen not to be cached because the engine checks readOnly too -- an invariant enforced in one place and silently contradicted in another.",
+          "if": {
+            "properties": { "caching": { "properties": { "cacheable": { "const": true } } } },
+            "required": ["caching"]
+          },
+          "then": {
+            "properties": {
+              "annotations": {
+                "properties": { "readOnly": { "const": true } },
+                "required": ["readOnly"]
+              }
+            },
+            "required": ["annotations"]
+          }
+        },
+        {
+          "$comment": "A cacheable result with no TTL never expires, so a merchant's stale coupon list would be served indefinitely.",
+          "if": {
+            "properties": { "caching": { "properties": { "cacheable": { "const": true } } } },
+            "required": ["caching"]
+          },
+          "then": {
+            "properties": { "caching": { "required": ["ttlSeconds"] } }
+          }
+        }
+      ]
+    },
+
+    "methodGovernanceRules": {
+      "$comment": "Cross-layer rules tying the Salla verb and its scopes to the governance annotations. These catch the mistakes that matter: a write tool marked read-only would be cached and served stale, and a read tool asking for read_write hands a merchant's store more access than the job needs.",
+      "allOf": [
+        {
+          "$comment": "GET is a read. Marking it otherwise disables caching for no reason and misleads the agent.",
+          "if": {
+            "properties": {
+              "binding": {
+                "properties": {
+                  "type": { "const": "salla" },
+                  "salla": { "properties": { "method": { "const": "GET" } }, "required": ["method"] }
+                },
+                "required": ["type", "salla"]
+              }
+            },
+            "required": ["binding"]
+          },
+          "then": {
+            "properties": {
+              "governance": {
+                "properties": {
+                  "annotations": {
+                    "properties": { "readOnly": { "const": true } },
+                    "required": ["readOnly"]
+                  }
+                },
+                "required": ["annotations"]
+              }
+            },
+            "required": ["governance"]
+          }
+        },
+        {
+          "$comment": "POST, PUT, PATCH and DELETE change the merchant's store. None of them is read-only.",
+          "if": {
+            "properties": {
+              "binding": {
+                "properties": {
+                  "type": { "const": "salla" },
+                  "salla": {
+                    "properties": { "method": { "enum": ["POST", "PUT", "PATCH", "DELETE"] } },
+                    "required": ["method"]
+                  }
+                },
+                "required": ["type", "salla"]
+              }
+            },
+            "required": ["binding"]
+          },
+          "then": {
+            "properties": {
+              "governance": {
+                "properties": {
+                  "annotations": {
+                    "properties": { "readOnly": { "const": false } },
+                    "required": ["readOnly"]
+                  }
+                },
+                "required": ["annotations"]
+              }
+            },
+            "required": ["governance"]
+          }
+        },
+        {
+          "$comment": "DELETE removes merchant data. It is destructive whatever the author felt about it.",
+          "if": {
+            "properties": {
+              "binding": {
+                "properties": {
+                  "type": { "const": "salla" },
+                  "salla": {
+                    "properties": { "method": { "const": "DELETE" } },
+                    "required": ["method"]
+                  }
+                },
+                "required": ["type", "salla"]
+              }
+            },
+            "required": ["binding"]
+          },
+          "then": {
+            "properties": {
+              "governance": {
+                "properties": {
+                  "annotations": {
+                    "properties": { "destructive": { "const": true } },
+                    "required": ["destructive"]
+                  },
+                  "execution": {
+                    "properties": { "humanApproval": { "const": "required" } },
+                    "required": ["humanApproval"]
+                  }
+                },
+                "required": ["annotations", "execution"]
+              }
+            },
+            "required": ["governance"]
+          }
+        },
+        {
+          "$comment": "Least privilege: a read-only tool must not request a read_write scope. Salla grants scopes per app installation, so an over-broad ask gives the whole app more power over a merchant's store than this tool needs.",
+          "if": {
+            "properties": {
+              "binding": {
+                "properties": { "type": { "const": "salla" } },
+                "required": ["type"]
+              },
+              "governance": {
+                "properties": {
+                  "annotations": {
+                    "properties": { "readOnly": { "const": true } },
+                    "required": ["readOnly"]
+                  }
+                },
+                "required": ["annotations"]
+              }
+            },
+            "required": ["binding", "governance"]
+          },
+          "then": {
+            "properties": {
+              "binding": {
+                "properties": {
+                  "salla": {
+                    "properties": {
+                      "auth": {
+                        "properties": {
+                          "scopes": {
+                            "items": { "pattern": "\\.read$" }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "$comment": "The converse: a tool that writes cannot do it with a read-only scope. Salla would reject the call with a 401 at runtime; better to reject the contract at review time.",
+          "if": {
+            "properties": {
+              "binding": {
+                "properties": { "type": { "const": "salla" } },
+                "required": ["type"]
+              },
+              "governance": {
+                "properties": {
+                  "annotations": {
+                    "properties": { "readOnly": { "const": false } },
+                    "required": ["readOnly"]
+                  }
+                },
+                "required": ["annotations"]
+              }
+            },
+            "required": ["binding", "governance"]
+          },
+          "then": {
+            "properties": {
+              "binding": {
+                "properties": {
+                  "salla": {
+                    "properties": {
+                      "auth": {
+                        "properties": {
+                          "scopes": {
+                            "contains": { "pattern": "\\.read_write$" }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       ]

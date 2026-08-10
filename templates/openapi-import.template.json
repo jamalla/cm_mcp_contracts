@@ -1,25 +1,25 @@
 {
   "$schema": "../schema/tool-contract.v1.json",
-  "_comment": "STARTER FILE for importing an existing OpenAPI spec instead of hand-writing contracts. You name the spec and the operationIds you want; a converter reads this and emits full single-tool contracts, which then flow through the exact same gate as anything hand-written. NOTE: the converter itself is out of scope for this POC -- the schema accepts this kind so the lane exists, but nothing consumes it yet.",
+  "_comment": "STARTER FILE for importing endpoints straight from Salla's OpenAPI spec instead of hand-writing each contract. You name the operationIds you want; a converter reads this and emits full single-tool contracts, which then flow through the exact same gate as anything hand-written.",
+  "_comment_status": "NOTE: no converter consumes this yet. The schema accepts the kind so the lane exists and can be reviewed, but importing is still a manual copy today.",
 
   "contractVersion": "1.0.0",
   "kind": "openapi-import",
 
   "source": {
-    "specUrl": "https://api.your-service.example/openapi.json",
-    "version": "2024-01-01"
+    "specUrl": "https://docs.salla.dev/openapi.json",
+    "version": "admin/v2"
   },
 
-  "_comment_operations": "Only these operationIds are imported. Importing a whole spec unreviewed is exactly what the gate exists to prevent.",
+  "_comment_operations": "Only these operationIds are imported. Importing a whole spec unreviewed is exactly what the gate exists to prevent -- Salla publishes hundreds of endpoints and almost none of them belong in an agent's tool list.",
   "operations": [
-    "getOrderStatus",
-    "listOrders"
+    "List-Coupons",
+    "Coupon-Details"
   ],
 
   "defaults": {
-    "_comment": "Applied to every imported operation unless an override says otherwise.",
-    "auth": { "type": "bearer", "secretRef": "TODO_SECRET_NAME" },
-    "timeoutMs": 5000,
+    "_comment": "Applied to every imported operation unless an override says otherwise. Scopes are NOT set here: they are read per-operation from the spec, because each endpoint declares its own.",
+    "timeoutMs": 10000,
     "governance": {
       "annotations": { "readOnly": true, "destructive": false, "idempotent": true, "openWorld": true },
       "execution": { "mode": "direct", "humanApproval": "never" },
@@ -27,12 +27,12 @@
     }
   },
 
-  "_comment_overrides": "'overrides' is keyed by operationId -- use it to add selection hints the spec cannot express, or to tighten governance on one operation. Note the comment lives out here: every key inside 'overrides' is treated as an operationId.",
+  "_comment_overrides": "'overrides' is keyed by operationId -- use it to add the selection hints a spec cannot express, or to tighten governance on one operation. The comment lives out here because every key inside 'overrides' is treated as an operationId.",
   "overrides": {
-    "getOrderStatus": {
+    "List-Coupons": {
       "interface": {
-        "whenToUse": ["The user asks where an order is or whether it shipped."],
-        "whenNotToUse": ["No order ID is available -- search first."]
+        "whenToUse": ["The merchant asks which coupons exist or which are still active."],
+        "whenNotToUse": ["The merchant named one coupon -- use Coupon-Details instead."]
       }
     }
   }

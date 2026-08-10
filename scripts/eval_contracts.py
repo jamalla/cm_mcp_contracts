@@ -53,23 +53,32 @@ VERDICT_SCHEMA = {
     "additionalProperties": False,
 }
 
-JUDGE_SYSTEM = """You review tool contracts submitted to a shared MCP registry.
+JUDGE_SYSTEM = """You review tool contracts submitted to a registry that turns
+Salla Admin API endpoints into MCP tools for merchant-facing agents.
 
-An agent picks tools from this registry using only the contract's `description`,
-`whenToUse`, and `whenNotToUse`. A contract that is structurally valid but
-semantically vague makes the agent pick the wrong tool, which is the failure
-mode you exist to catch.
+An agent picks tools using only the contract's `description`, `whenToUse`, and
+`whenNotToUse`. A contract that is structurally valid but semantically vague makes
+the agent pick the wrong tool against a real merchant's store, which is the
+failure mode you exist to catch. The structural gate has already checked shape,
+scopes format, and the method/governance cross-rules -- do not re-litigate those.
 
 Fail a contract when any of these hold:
 - The description is boilerplate, or too vague to route on.
-- whenToUse restates the description instead of naming concrete situations.
-- whenNotToUse is missing the obvious confusion with a sibling tool.
+- whenToUse restates the description instead of naming concrete situations a
+  merchant would actually raise.
+- whenNotToUse misses the obvious confusion with a sibling tool (list vs detail,
+  read vs write) or fails to name the sibling.
 - The tool duplicates an existing registry entry without a clear distinction.
-- The governance layer contradicts what the tool actually does -- e.g. something
-  that plainly writes marked readOnly, or an obviously destructive action set to
-  execution mode "direct".
-- Anything unsafe: a secret inlined instead of referenced, an over-broad input,
-  a tool that could exfiltrate data it has no business touching.
+- The binding does not match what the interface claims: a path or operationId
+  that plainly belongs to a different Salla endpoint than the description
+  promises, or a response schema describing fields Salla's endpoint does not
+  return.
+- The input surface is careless: arguments exposed that an agent should never
+  control (per_page in the thousands, raw status ids with no guard), or a
+  destructive tool whose hints would let it trigger on vague vocabulary.
+- Anything unsafe for the merchant: over-broad scopes for the job, a write
+  reachable without explicit intent, response fields that leak data the tool has
+  no business returning.
 
 Judge only what is in front of you. Do not fail a contract for style, naming
 preferences, or a missing optional field. Be specific in every reason: name the
@@ -158,23 +167,45 @@ def judge_heuristically(path: Path, contract: dict) -> Verdict:
         if name in existing:
             reasons.append(f"{name}: a tool with this name is already in the registry.")
 
-        # Governance contradictions the schema cannot express as a cross-field rule.
-        if annotations.get("readOnly") and binding.get("type") == "http":
-            method = binding.get("http", {}).get("method")
-            if method in {"POST", "PUT", "PATCH", "DELETE"}:
+        # Quality questions the structural gate cannot ask. Hard contradictions
+        # (method vs readOnly, destructive vs cacheable) are the schema's job now;
+        # what belongs here is judgment about whether the contract is GOOD.
+        salla = binding.get("salla") or {}
+
+        if salla:
+            # Salla paginates lists with `page`; a collection endpoint that hides it
+            # gives the agent only the first 15 rows with no way to ask for more.
+            response = salla.get("response") or {}
+            if response.get("pagination") == "standard":
+                query_names = {
+                    q.get("name") for q in (salla.get("parameters") or {}).get("query") or []
+                }
+                if "page" not in query_names:
+                    reasons.append(
+                        f"{name}: the response is paginated but the tool does not expose a "
+                        f"`page` query parameter, so the agent can only ever see page one."
+                    )
+
+            # Traceability: a reviewer should not have to guess which endpoint this is.
+            if not salla.get("docsUrl"):
                 reasons.append(
-                    f"{name}: marked readOnly but the binding issues {method}."
+                    f"{name}: no docsUrl -- link the endpoint on docs.salla.dev so a "
+                    f"reviewer can check this contract against the source."
                 )
-        if annotations.get("destructive") and caching.get("cacheable"):
-            reasons.append(f"{name}: destructive tools must never be cacheable.")
+
+            # A destructive write whose whenToUse does not demand explicit intent
+            # invites the router to pick it on vague vocabulary overlap.
+            if annotations.get("destructive"):
+                intent_words = ("explicit", "asks to", "confirms", "requested")
+                hints_text = " ".join(when_to_use).lower()
+                if not any(word in hints_text for word in intent_words):
+                    reasons.append(
+                        f"{name}: destructive, but no whenToUse hint requires the merchant "
+                        f"to have explicitly asked. Say 'the merchant explicitly asks to ...'"
+                    )
+
         if caching.get("cacheable") and not caching.get("ttlSeconds"):
             reasons.append(f"{name}: cacheable but no ttlSeconds, so entries never expire.")
-
-        # A secretRef should name an env var, never carry the secret itself.
-        auth = binding.get("http", {}).get("auth", {})
-        secret_ref = auth.get("secretRef", "")
-        if secret_ref and any(secret_ref.lower().startswith(p) for p in ("sk-", "pk-", "ghp_")):
-            reasons.append(f"{name}: secretRef looks like an inlined secret, not a reference.")
 
     return Verdict(
         path=path,

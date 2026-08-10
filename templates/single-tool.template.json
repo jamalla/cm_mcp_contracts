@@ -1,75 +1,109 @@
 {
   "$schema": "../schema/tool-contract.v1.json",
-  "_comment": "STARTER FILE. Copy me into contracts/examples/<your_tool_name>.json, fill every TODO, delete the _comment keys, and open a PR. Your editor will red-underline mistakes before CI ever sees them.",
+  "_comment": "STARTER FILE for one Salla Admin API endpoint. Copy me into contracts/<tool_name>.json, fill every TODO, delete the _comment keys if you like (the schema allows them either way), and open a PR. Your editor validates against the schema as you type, so most mistakes surface before CI.",
+  "_comment_workflow": "Open the endpoint on docs.salla.dev first. Everything below -- operationId, method, path, scopes, parameters -- is copied from there, not invented. If a value is not in Salla's docs, it does not belong here.",
 
   "contractVersion": "1.0.0",
   "kind": "single-tool",
 
   "interface": {
-    "_comment": "WHAT THE TOOL IS. This layer maps 1:1 to the standard MCP tool shape, so any MCP client can consume it.",
+    "_comment": "WHAT THE TOOL IS. Maps 1:1 to the standard MCP tool shape, so any MCP client can consume it.",
 
     "name": "TODO_snake_case_name",
     "title": "TODO Human Readable Title",
-    "description": "TODO one sentence, at least 20 characters, saying what this returns. The agent reads this to decide whether to pick you.",
+    "description": "TODO one sentence, at least 20 characters, saying what this returns. The agent reads this to decide whether to pick you over a sibling tool.",
 
-    "_comment_hints": "whenToUse / whenNotToUse are the selection hints. Be concrete -- these are the difference between the agent picking you correctly and picking you by accident.",
+    "_comment_hints": "The selection hints. Be concrete and name the sibling tool in whenNotToUse -- 'use get_coupon instead' is what stops the agent picking a list endpoint when the merchant named one record.",
     "whenToUse": [
       "TODO a concrete situation where this tool is the right pick."
     ],
     "whenNotToUse": [
-      "TODO a situation where the agent should reach for something else."
+      "TODO a situation where the agent should reach for a named sibling instead."
     ],
 
     "input": {
+      "_comment": "THE TOOL'S arguments, not Salla's. A Salla list endpoint may accept twenty filters; expose only the few an agent should actually set. Narrowing the surface is the contract doing its job. Use friendly camelCase names here and map them to Salla's wire names under binding.salla.parameters.",
       "schema": {
         "type": "object",
         "properties": {
-          "TODO_field": { "type": "string", "description": "TODO what this field is." }
+          "TODO_field": { "type": "string", "description": "TODO what this argument is." }
         },
         "required": ["TODO_field"],
         "additionalProperties": false
       },
-      "_comment_forbidden": "Optional. Field names a caller must never be able to supply.",
+      "_comment_forbidden": "Optional. Argument names a caller must never be able to supply.",
       "forbidden": []
     },
 
     "response": {
+      "_comment": "Describe what is INSIDE Salla's `data`. Never model the {status, success, data} envelope -- the engine unwraps it before anyone sees it.",
       "schema": {
         "type": "object",
         "properties": {
+          "id": { "type": "integer" },
           "TODO_field": { "type": "string" }
         },
-        "required": ["TODO_field"]
+        "required": ["id"]
       },
       "_comment_ui": "Optional render hint. {braces} interpolate fields from the response.",
       "ui": {
         "display": "card",
-        "title": "TODO {TODO_field}",
+        "title": "TODO {id}",
         "primary": "{TODO_field}"
       }
     }
   },
 
   "binding": {
-    "_comment": "WHERE IT CALLS. Use type 'http' for a real API, or type 'none' with a builtin:// handler for a pure function that runs inside the engine with no network.",
-    "type": "http",
-    "http": {
-      "baseUrl": "https://api.your-service.example",
+    "_comment": "WHERE IT CALLS. Note there is no baseUrl: the engine owns it, so a contract cannot pin production and cannot drift when Salla moves. Use type 'none' with a builtin:// handler instead if this tool computes rather than fetches.",
+    "type": "salla",
+    "salla": {
+      "_comment_traceability": "operationId and docsUrl come straight from Salla's spec. They are what lets a reviewer check this contract against the source without guessing which endpoint you meant.",
+      "operationId": "TODO-Salla-Operation-Id",
+      "summary": "TODO Salla's own summary for this endpoint, copied verbatim",
+      "docsUrl": "https://docs.salla.dev/TODO",
+
       "method": "GET",
-      "path": "/v1/TODO/{TODO_field}",
-      "_comment_auth": "Reference a secret by NAME. Never paste the value into a contract.",
-      "auth": { "type": "bearer", "secretRef": "TODO_SECRET_NAME" },
-      "timeoutMs": 5000
+      "path": "/TODO/{TODO_id}",
+      "apiVersion": "admin/v2",
+
+      "_comment_auth": "No secret is named here. A Salla app acts on behalf of a merchant, so the engine resolves that store's OAuth token at call time. You only declare which scopes the token must carry -- copy them from the Scopes box on the endpoint's docs page. Ask for the narrowest that works: a read-only tool must use .read, and the schema enforces it.",
+      "auth": {
+        "scopes": ["TODO_domain.read"]
+      },
+
+      "_comment_parameters": "How the tool's arguments become a Salla request. `name` is Salla's wire name, `from` is the tool argument feeding it. Omit `from` when they match.",
+      "parameters": {
+        "path": [
+          { "name": "TODO_id", "from": "TODO_field", "description": "Every {placeholder} in `path` needs an entry here." }
+        ],
+        "query": [
+          { "name": "page", "description": "Salla paginates with `page`. Expose it when the endpoint returns a list." },
+          { "name": "TODO_filter", "from": "TODO_field", "style": "single" }
+        ],
+        "_comment_body": "For POST/PUT/PATCH. mode 'none' sends no body, 'passthrough' sends every argument not consumed by path or query, 'mapped' sends only the fields you list.",
+        "body": { "mode": "none" }
+      },
+
+      "_comment_response": "Salla wraps everything in {status, success, data}, and adds `pagination` on lists. This tells the engine what to unwrap.",
+      "response": {
+        "dataPath": "data",
+        "collection": false,
+        "pagination": "none",
+        "successStatuses": [200]
+      },
+
+      "timeoutMs": 10000
     }
   },
 
   "validation": {
-    "_comment": "Optional. These regexes are compiled into the generated code as real guards.",
+    "_comment": "Optional. These regexes are compiled into the generated code as real guards, so a bad argument fails locally instead of costing a round trip and a Salla 422.",
     "rules": [
       {
         "field": "TODO_field",
-        "match": "^TODO-[0-9]+$",
-        "message": "TODO_field must look like TODO-123"
+        "match": "^[0-9]+$",
+        "message": "TODO_field must be a numeric Salla id"
       }
     ]
   },
@@ -78,9 +112,9 @@
   "dependencies": [],
 
   "governance": {
-    "_comment": "HOW IT IS ALLOWED TO RUN. This layer is ours; MCP leaves it open.",
+    "_comment": "HOW IT IS ALLOWED TO RUN. This layer is ours; MCP leaves it open. The schema cross-checks it against the Salla method, so these cannot quietly disagree with what the endpoint actually does.",
 
-    "_comment_annotations": "readOnly drives caching. A destructive tool is never cached, and the schema enforces that.",
+    "_comment_annotations": "GET must be readOnly true. POST/PUT/PATCH/DELETE must be readOnly false, and DELETE must additionally be destructive with humanApproval required.",
     "annotations": {
       "readOnly": true,
       "destructive": false,
@@ -88,13 +122,13 @@
       "openWorld": true
     },
 
-    "_comment_execution": "'direct' runs immediately. 'propose-apply' returns a proposal and waits for a human -- it requires humanApproval 'required'.",
+    "_comment_execution": "'direct' runs immediately. 'propose-apply' returns a proposal and waits for a human; it requires humanApproval 'required'.",
     "execution": {
       "mode": "direct",
       "humanApproval": "never"
     },
 
-    "_comment_caching": "keyBy picks which args form the cache key. Omit it to key on all of them.",
+    "_comment_caching": "Only read-only tools may be cacheable, and a cacheable tool must set a ttlSeconds or its result never expires. keyBy picks which arguments form the cache key -- omit it to key on all of them.",
     "caching": {
       "cacheable": true,
       "keyBy": ["TODO_field"],

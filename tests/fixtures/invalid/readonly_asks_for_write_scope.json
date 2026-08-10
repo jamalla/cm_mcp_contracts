@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../schema/tool-contract.v1.json",
+  "_comment": "REJECTION FIXTURE: a read-only tool requesting coupons.read_write. Salla grants scopes per app installation, so an over-broad ask hands the whole app more power over every merchant's store than this tool needs.",
+  "contractVersion": "1.0.0",
+  "kind": "single-tool",
+  "interface": {
+    "name": "list_coupons_overbroad",
+    "title": "List Coupons",
+    "description": "Lists the discount coupons configured in the store.",
+    "whenToUse": ["The merchant asks which coupons exist."],
+    "whenNotToUse": ["The merchant names one coupon -- use get_coupon instead."],
+    "input": { "schema": { "type": "object", "properties": { "page": { "type": "integer" } } } },
+    "response": { "schema": { "type": "object", "properties": { "id": { "type": "integer" } } } }
+  },
+  "binding": {
+    "type": "salla",
+    "salla": {
+      "operationId": "List-Coupons",
+      "method": "GET",
+      "path": "/coupons",
+      "auth": { "scopes": ["coupons.read_write"] },
+      "response": { "dataPath": "data", "collection": true, "pagination": "standard", "successStatuses": [200] }
+    }
+  },
+  "governance": {
+    "annotations": { "readOnly": true, "destructive": false, "idempotent": true, "openWorld": true },
+    "execution": { "mode": "direct", "humanApproval": "never" },
+    "caching": { "cacheable": true, "keyBy": ["page"], "ttlSeconds": 300 }
+  }
+}

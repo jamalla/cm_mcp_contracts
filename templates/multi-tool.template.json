@@ -1,6 +1,7 @@
 {
   "$schema": "../schema/tool-contract.v1.json",
-  "_comment": "STARTER FILE for shipping several related tools as one package. Copy me into contracts/examples/<package_name>.multi.json. Each entry in 'tools' is a complete tool body -- same interface + binding + governance layers as a single-tool contract. The registry expands the package into individual tools at load time, so each one still gets its own MCP tool name.",
+  "_comment": "STARTER FILE for several endpoints from ONE Salla domain, shipped and reviewed together. Copy me into contracts/<domain>.multi.json. Each entry in 'tools' is a complete tool body -- the same interface + binding + governance layers as a single-tool contract. The registry expands the package into individual tools at load time, so each still gets its own MCP tool name.",
+  "_comment_when": "Use this when the tools share a domain, a review audience, and a lifecycle -- all the Coupons endpoints, say. Use separate single-tool files when they do not.",
 
   "contractVersion": "1.0.0",
   "kind": "multi-tool",
@@ -9,77 +10,94 @@
     "_comment": "Metadata about the group. The package name does not become a tool name.",
     "name": "TODO_package_name",
     "title": "TODO Package Title",
-    "description": "TODO at least 20 characters describing what this group of tools has in common.",
+    "description": "TODO at least 20 characters describing what these endpoints have in common.",
+    "sallaDomain": "TODO",
     "owner": "TODO-team-name"
   },
 
   "tools": [
     {
-      "_comment": "Copy this whole block per tool. Two are shown so the array shape is obvious.",
+      "_comment": "A read. Copy this whole block per endpoint; two are shown so the array shape is obvious.",
       "interface": {
         "name": "TODO_first_tool",
         "title": "TODO First Tool",
         "description": "TODO one sentence, at least 20 characters, about what this returns.",
         "whenToUse": ["TODO a concrete situation where this tool is the right pick."],
-        "whenNotToUse": ["TODO a situation where the agent should skip this tool."],
+        "whenNotToUse": ["TODO when the agent should use TODO_second_tool instead."],
         "input": {
           "schema": {
             "type": "object",
-            "properties": { "TODO_field": { "type": "string", "description": "TODO." } },
-            "required": ["TODO_field"],
+            "properties": { "page": { "type": "integer", "description": "Page number." } },
             "additionalProperties": false
           }
         },
         "response": {
-          "schema": {
-            "type": "object",
-            "properties": { "TODO_field": { "type": "string" } },
-            "required": ["TODO_field"]
-          },
-          "ui": { "display": "card", "title": "TODO", "primary": "{TODO_field}" }
+          "schema": { "type": "object", "properties": { "id": { "type": "integer" } }, "required": ["id"] },
+          "ui": { "display": "table", "title": "TODO results" }
         }
       },
       "binding": {
-        "_comment": "type 'none' runs a pure function inside the engine -- no network, works offline.",
-        "type": "none",
-        "handler": "builtin://todo_first_tool"
+        "type": "salla",
+        "salla": {
+          "operationId": "TODO-List-Something",
+          "summary": "TODO Salla's summary, copied verbatim",
+          "docsUrl": "https://docs.salla.dev/TODO",
+          "method": "GET",
+          "path": "/TODO",
+          "apiVersion": "admin/v2",
+          "auth": { "scopes": ["TODO_domain.read"] },
+          "parameters": { "query": [{ "name": "page" }] },
+          "response": { "dataPath": "data", "collection": true, "pagination": "standard", "successStatuses": [200] },
+          "timeoutMs": 10000
+        }
       },
       "dependencies": [],
       "governance": {
-        "annotations": { "readOnly": true, "destructive": false, "idempotent": true, "openWorld": false },
+        "annotations": { "readOnly": true, "destructive": false, "idempotent": true, "openWorld": true },
         "execution": { "mode": "direct", "humanApproval": "never" },
-        "caching": { "cacheable": true, "keyBy": ["TODO_field"], "ttlSeconds": 600 }
+        "caching": { "cacheable": true, "keyBy": ["page"], "ttlSeconds": 300 }
       }
     },
     {
+      "_comment": "A write. Note what changes together: readOnly false, a .read_write scope, no caching, and -- because this one is destructive -- propose-apply with approval required.",
       "interface": {
         "name": "TODO_second_tool",
         "title": "TODO Second Tool",
-        "description": "TODO one sentence, at least 20 characters, about what this returns.",
-        "whenToUse": ["TODO a concrete situation where this tool is the right pick."],
-        "whenNotToUse": ["TODO a situation where the agent should skip this tool."],
+        "description": "TODO one sentence, at least 20 characters, about what this changes.",
+        "whenToUse": ["TODO when the merchant explicitly asks for this change."],
+        "whenNotToUse": ["TODO when they only want to look -- use TODO_first_tool."],
         "input": {
           "schema": {
             "type": "object",
-            "properties": { "TODO_field": { "type": "string", "description": "TODO." } },
-            "required": ["TODO_field"],
+            "properties": { "recordId": { "type": "integer", "description": "Salla record id." } },
+            "required": ["recordId"],
             "additionalProperties": false
           }
         },
         "response": {
-          "schema": {
-            "type": "object",
-            "properties": { "TODO_field": { "type": "string" } },
-            "required": ["TODO_field"]
-          }
+          "schema": { "type": "object", "properties": { "message": { "type": "string" } } }
         }
       },
-      "binding": { "type": "none", "handler": "builtin://todo_second_tool" },
+      "binding": {
+        "type": "salla",
+        "salla": {
+          "operationId": "TODO-Delete-Something",
+          "summary": "TODO Salla's summary, copied verbatim",
+          "docsUrl": "https://docs.salla.dev/TODO",
+          "method": "DELETE",
+          "path": "/TODO/{record_id}",
+          "apiVersion": "admin/v2",
+          "auth": { "scopes": ["TODO_domain.read_write"] },
+          "parameters": { "path": [{ "name": "record_id", "from": "recordId" }] },
+          "response": { "dataPath": "data", "collection": false, "pagination": "none", "successStatuses": [202] },
+          "timeoutMs": 10000
+        }
+      },
       "dependencies": [],
       "governance": {
-        "annotations": { "readOnly": true, "destructive": false, "idempotent": true, "openWorld": false },
-        "execution": { "mode": "direct", "humanApproval": "never" },
-        "caching": { "cacheable": true, "keyBy": ["TODO_field"], "ttlSeconds": 600 }
+        "annotations": { "readOnly": false, "destructive": true, "idempotent": false, "openWorld": true },
+        "execution": { "mode": "propose-apply", "humanApproval": "required" },
+        "caching": { "cacheable": false }
       }
     }
   ]

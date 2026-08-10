@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -43,12 +44,124 @@ def discover(paths: list[str] | None, directory: str | None) -> list[Path]:
 # branch the author actually meant instead of all three at once.
 KIND_BRANCH = {"single-tool": 0, "multi-tool": 1, "openapi-import": 2}
 
+# JSON Schema cannot carry custom error messages, so a cross-field rule surfaces as
+# something like "'coupons.read_write' does not match '\\.read$'" -- technically exact
+# and useless to the partner who has to fix it. The helpers below turn the rules that
+# matter into what actually went wrong and what to do about it.
+#
+# They key off the validator and its declared value rather than the rendered message:
+# the message embeds the regex, so a scope literally named "coupons.write" would match
+# a naive search for "read_write" against the pattern text and earn a confidently wrong
+# explanation.
+
+SCOPE_FORMAT_PATTERN = "^[a-z][a-z0-9_]*\\.(read|read_write)$"
+READ_ONLY_SCOPE_PATTERN = "\\.read$"
+
+
+def _tool_body_at(contract: dict, location: str) -> dict:
+    """The single-tool body the failing path sits inside.
+
+    A multi-tool package reports as tools/2/governance/..., so the method behind a
+    governance error is only findable by walking to that entry.
+    """
+    if not isinstance(contract, dict):
+        return {}
+    parts = location.split("/")
+    if parts[0] == "tools" and len(parts) > 1 and parts[1].isdigit():
+        tools = contract.get("tools") or []
+        index = int(parts[1])
+        return tools[index] if index < len(tools) else {}
+    return contract
+
+
+def _salla_method(contract: dict, location: str) -> str | None:
+    body = _tool_body_at(contract, location)
+    binding = body.get("binding") or {}
+    if binding.get("type") != "salla":
+        return None
+    return (binding.get("salla") or {}).get("method")
+
+
+def _hint_for(error, location: str, message: str, contract: dict) -> str | None:
+    """Explain a cross-field rule in terms the author can act on.
+
+    Two of these rules can produce the *same* JSON Schema error from different
+    causes -- readOnly is demanded both by "GET only reads" and by "only reads may
+    be cached". Guessing between them prints a confident, wrong instruction, so the
+    method is resolved from the contract before choosing.
+    """
+    if "auth/scopes" in location:
+        if error.validator == "contains":
+            return (
+                "a tool that writes needs a .read_write scope; Salla rejects a write "
+                "attempted with a .read token as a 401"
+            )
+        if error.validator == "pattern":
+            if error.validator_value == READ_ONLY_SCOPE_PATTERN:
+                return (
+                    "least privilege: a read-only tool must not request a read_write scope. "
+                    "Use the .read scope, or set annotations.readOnly to false if it really writes"
+                )
+            if error.validator_value == SCOPE_FORMAT_PATTERN:
+                return (
+                    "a Salla scope looks like <domain>.read or <domain>.read_write, "
+                    "e.g. coupons.read"
+                )
+
+    if location.endswith("annotations/readOnly"):
+        method = _salla_method(contract, location)
+        if "True was expected" in message:
+            if method == "GET":
+                return (
+                    "GET only reads, so mark it read-only -- otherwise it is never cached "
+                    "and the agent is told it has side effects"
+                )
+            return (
+                "only a read-only tool may be cacheable; either set caching.cacheable to "
+                "false, or mark this read-only if it genuinely does not change anything"
+            )
+        if "False was expected" in message:
+            return f"{method or 'this method'} changes store data, so it cannot be read-only"
+
+    if location.endswith("annotations/destructive"):
+        if "True was expected" in message:
+            return "DELETE removes merchant data; it is destructive regardless of intent"
+        if "False was expected" in message:
+            return "a read-only tool cannot also be destructive"
+
+    if location.endswith("caching/cacheable") and "False was expected" in message:
+        return (
+            "destructive tools are never cacheable -- a cached write serves a stale result "
+            "as though the write had happened"
+        )
+
+    if location.endswith("execution/humanApproval") and "required" in message:
+        return (
+            "this tool needs a human in the loop: execution.mode propose-apply with "
+            "humanApproval required"
+        )
+
+    if location.endswith("caching") and "ttlSeconds" in message:
+        return "a cacheable result with no ttlSeconds never expires"
+
+    if location.endswith("response/collection") and "True was expected" in message:
+        return "a paginated Salla response returns an array, so collection must be true"
+
+    return None
+
 
 def _location(error) -> str:
     return "/".join(str(p) for p in error.absolute_path) or "(root)"
 
 
-def _describe(error) -> list[str]:
+def _line(error, contract: dict) -> str:
+    """One reported problem, with a plain-language hint when we have one."""
+    location, message = _location(error), error.message
+    hint = _hint_for(error, location, message, contract)
+    return f"{location}: {message}" + (f"\n        -> {hint}" if hint else "")
+
+
+def _describe(error, contract: dict) -> list[str]:
     """Turn a jsonschema error into lines a contributor can act on.
 
     A top-level `oneOf` failure is the unreadable case: all three contract kinds report
@@ -57,7 +170,7 @@ def _describe(error) -> list[str]:
     difference between a useful rejection and a confusing one.
     """
     if error.validator != "oneOf" or not error.context:
-        return [f"{_location(error)}: {error.message}"]
+        return [_line(error, contract)]
 
     declared_kind = error.instance.get("kind") if isinstance(error.instance, dict) else None
     branch = KIND_BRANCH.get(declared_kind)
@@ -67,15 +180,15 @@ def _describe(error) -> list[str]:
 
     relevant = [sub for sub in error.context if sub.schema_path and sub.schema_path[0] == branch]
     if not relevant:
-        return [f"{_location(error)}: {error.message}"]
+        return [_line(error, contract)]
 
     lines: list[str] = []
     for sub in sorted(relevant, key=lambda e: list(e.absolute_path)):
-        lines.extend(_describe_nested_oneof(sub) if sub.validator == "oneOf" and sub.context else [f"{_location(sub)}: {sub.message}"])
+        lines.extend(_describe_nested_oneof(sub, contract) if sub.validator == "oneOf" and sub.context else [_line(sub, contract)])
     return lines
 
 
-def _describe_nested_oneof(error) -> list[str]:
+def _describe_nested_oneof(error, contract: dict) -> list[str]:
     """Nested `oneOf`s (binding.type) are discriminated on a `type` const.
 
     If the declared type matches no branch, that IS the error -- say so, rather than
@@ -94,8 +207,112 @@ def _describe_nested_oneof(error) -> list[str]:
     branch = allowed.index(declared) if allowed else None
     matching = [sub for sub in error.context if branch is None or (sub.schema_path and sub.schema_path[0] == branch)]
     if not matching:
-        return [f"{_location(error)}: {error.message}"]
-    return [f"{_location(sub)}: {sub.message}" for sub in sorted(matching, key=lambda e: list(e.absolute_path))]
+        return [_line(error, contract)]
+    return [_line(sub, contract) for sub in sorted(matching, key=lambda e: list(e.absolute_path))]
+
+
+PLACEHOLDER = re.compile(r"\{([^}]+)\}")
+
+
+def _tool_bodies(contract: dict) -> list[tuple[str, dict]]:
+    """Every executable tool body in a contract, labelled for error messages."""
+    kind = contract.get("kind")
+    if kind == "single-tool":
+        return [("", contract)]
+    if kind == "multi-tool":
+        return [
+            (f"tools/{i}: ", tool) for i, tool in enumerate(contract.get("tools") or [])
+        ]
+    return []
+
+
+def consistency_problems(contract: dict) -> list[str]:
+    """Cross-references JSON Schema cannot express.
+
+    A schema can say `parameters.path` is an array of objects. It cannot say that
+    the array must line up with the {placeholders} in `path`, or that every `from`
+    must name an argument the tool actually accepts. Those mismatches produce a
+    contract that validates perfectly and then builds a broken request -- a URL
+    with a literal {coupon_id} in it, or a filter silently dropped because it reads
+    an argument nobody can pass.
+    """
+    problems: list[str] = []
+
+    for label, body in _tool_bodies(contract):
+        binding = body.get("binding") or {}
+        if binding.get("type") != "salla":
+            continue
+        salla = binding.get("salla") or {}
+        params = salla.get("parameters") or {}
+
+        arguments = set((body.get("interface", {}).get("input", {}).get("schema", {}).get("properties") or {}))
+        required_arguments = set(
+            body.get("interface", {}).get("input", {}).get("schema", {}).get("required") or []
+        )
+
+        # 1. Path placeholders and their mappings must agree, in both directions.
+        placeholders = set(PLACEHOLDER.findall(salla.get("path", "")))
+        mapped_path = {p.get("name") for p in (params.get("path") or [])}
+        for missing in sorted(placeholders - mapped_path):
+            problems.append(
+                f"{label}path contains {{{missing}}} but parameters.path has no entry for it, "
+                f"so the request URL would keep the literal placeholder"
+            )
+        for extra in sorted(mapped_path - placeholders):
+            problems.append(
+                f"{label}parameters.path maps {extra!r}, which does not appear in path "
+                f"{salla.get('path')!r}"
+            )
+
+        # 2. Every mapping must read an argument the tool actually accepts.
+        consumed: set[str] = set()
+        for section, entries in (("path", params.get("path")), ("query", params.get("query"))):
+            for entry in entries or []:
+                if "constant" in entry:
+                    continue
+                source = entry.get("from") or entry.get("name")
+                consumed.add(source)
+                if source not in arguments:
+                    problems.append(
+                        f"{label}parameters.{section} entry {entry.get('name')!r} reads argument "
+                        f"{source!r}, which is not declared in interface.input.schema.properties"
+                    )
+
+        body_spec = params.get("body") or {}
+        if body_spec.get("mode") == "mapped":
+            for entry in body_spec.get("fields") or []:
+                source = entry.get("from") or entry.get("name")
+                consumed.add(source)
+                if source not in arguments:
+                    problems.append(
+                        f"{label}parameters.body field {entry.get('name')!r} reads argument "
+                        f"{source!r}, which is not declared in interface.input.schema.properties"
+                    )
+        elif body_spec.get("mode") == "passthrough":
+            consumed |= arguments  # everything left over becomes the body
+
+        # 3. An argument the caller must supply, that the request never uses, is a
+        #    promise the tool cannot keep.
+        for orphan in sorted(required_arguments - consumed):
+            problems.append(
+                f"{label}argument {orphan!r} is required but never used in the path, query "
+                f"or body, so supplying it would change nothing"
+            )
+
+        # 4. Cache keys and validation rules must name real arguments.
+        for key in body.get("governance", {}).get("caching", {}).get("keyBy") or []:
+            if key not in arguments:
+                problems.append(
+                    f"{label}caching.keyBy names {key!r}, which is not one of the tool's arguments"
+                )
+        for rule in body.get("validation", {}).get("rules") or []:
+            if rule.get("field") not in arguments:
+                problems.append(
+                    f"{label}validation rule targets {rule.get('field')!r}, which is not one of "
+                    f"the tool's arguments, so the guard would never run"
+                )
+
+    return problems
 
 
 def validate_file(path: Path, validator: Draft202012Validator) -> list[str]:
@@ -108,10 +325,16 @@ def validate_file(path: Path, validator: Draft202012Validator) -> list[str]:
     # Deduplicate: oneOf branches often report the same underlying problem twice.
     seen, described = set(), []
     for error in errors:
-        for line in _describe(error):
+        for line in _describe(error, contract):
             if line not in seen:
                 seen.add(line)
                 described.append(line)
+
+    # Only once the shape is valid. Running these against a contract the schema has
+    # already rejected produces cascading noise about fields that are simply absent.
+    if not described:
+        described = consistency_problems(contract)
+
     return described
 
 

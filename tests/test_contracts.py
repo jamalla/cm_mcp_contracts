@@ -90,6 +90,21 @@ def test_templates_point_at_the_schema(path):
     assert template["$schema"] == "../schema/tool-contract.v1.json"
 
 
+# What a contributor types over the placeholders. Names must be snake_case, scopes
+# must look like a real Salla scope, and operationIds must match Salla's style.
+TEMPLATE_FILLS = {
+    "TODO_snake_case_name": "get_coupon",
+    "TODO_package_name": "coupon_tools",
+    "TODO_first_tool": "list_coupons",
+    "TODO_second_tool": "delete_coupon",
+    "TODO_domain.read_write": "coupons.read_write",
+    "TODO_domain.read": "coupons.read",
+    "TODO-Salla-Operation-Id": "Coupon-Details",
+    "TODO-List-Something": "List-Coupons",
+    "TODO-Delete-Something": "Delete-Coupon",
+}
+
+
 def _fill(node):
     """Do what a contributor does: replace the TODO placeholders."""
     if isinstance(node, dict):
@@ -97,12 +112,9 @@ def _fill(node):
     if isinstance(node, list):
         return [_fill(v) for v in node]
     if isinstance(node, str):
-        return (
-            node.replace("TODO_snake_case_name", "check_warranty")
-            .replace("TODO_package_name", "warranty_tools")
-            .replace("TODO_first_tool", "check_warranty")
-            .replace("TODO_second_tool", "extend_warranty")
-        )
+        for placeholder, value in TEMPLATE_FILLS.items():
+            node = node.replace(placeholder, value)
+        return node
     return node
 
 
@@ -129,17 +141,3 @@ def test_comment_keys_are_allowed_by_the_schema(path, validator):
         "_comment_extra": "and a second one",
     }
     assert not list(validator.iter_errors(with_comments))
-
-
-def test_destructive_and_cacheable_is_a_schema_error(validator):
-    """The cross-field governance rules are the point of the meta-schema."""
-    contract = json.loads((CONTRACTS_DIR / "get_order_status.json").read_text(encoding="utf-8"))
-    contract["governance"]["annotations"]["readOnly"] = False
-    contract["governance"]["annotations"]["destructive"] = True
-    assert list(validator.iter_errors(contract))
-
-
-def test_propose_apply_requires_human_approval(validator):
-    contract = json.loads((CONTRACTS_DIR / "cancel_order.json").read_text(encoding="utf-8"))
-    contract["governance"]["execution"]["humanApproval"] = "never"
-    assert list(validator.iter_errors(contract))

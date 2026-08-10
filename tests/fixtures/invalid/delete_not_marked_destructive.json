@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../schema/tool-contract.v1.json",
+  "_comment": "REJECTION FIXTURE: a DELETE declared non-destructive, cacheable, and running without approval. Any one of those is a governance hole; together they would let the engine cache the removal of a merchant's coupon.",
+  "contractVersion": "1.0.0",
+  "kind": "single-tool",
+  "interface": {
+    "name": "delete_coupon_unsafe",
+    "title": "Delete Coupon",
+    "description": "Deletes a discount coupon from the store permanently.",
+    "whenToUse": ["The merchant explicitly asks to delete a coupon."],
+    "whenNotToUse": ["The merchant wants to disable it temporarily -- update its status instead."],
+    "input": { "schema": { "type": "object", "properties": { "couponId": { "type": "integer" } }, "required": ["couponId"] } },
+    "response": { "schema": { "type": "object", "properties": { "message": { "type": "string" } } } }
+  },
+  "binding": {
+    "type": "salla",
+    "salla": {
+      "operationId": "Delete-Coupon",
+      "method": "DELETE",
+      "path": "/coupons/{coupon_id}",
+      "auth": { "scopes": ["coupons.read_write"] },
+      "parameters": { "path": [{ "name": "coupon_id", "from": "couponId" }] },
+      "response": { "dataPath": "data", "successStatuses": [202] }
+    }
+  },
+  "governance": {
+    "annotations": { "readOnly": false, "destructive": false, "idempotent": false, "openWorld": true },
+    "execution": { "mode": "direct", "humanApproval": "never" },
+    "caching": { "cacheable": true, "ttlSeconds": 300 }
+  }
+}
