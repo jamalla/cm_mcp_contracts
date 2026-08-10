@@ -61,15 +61,15 @@ READ_CONTRACT = {
         },
     },
     "governance": {
-        "annotations": {
-            "readOnly": True,
-            "destructive": False,
-            "idempotent": True,
-            "openWorld": True,
-        },
         "execution": {"mode": "direct", "humanApproval": "never"},
         "caching": {"cacheable": True, "keyBy": ["page"], "ttlSeconds": 300},
     },
+}
+READ_CONTRACT["interface"]["annotations"] = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": True,
 }
 
 # A minimal, valid Salla delete contract -- the strictest combination the schema allows.
@@ -94,13 +94,13 @@ DELETE_CONTRACT["binding"]["http"].update(
         "response": {"dataPath": "data", "collection": False, "successStatuses": [202]},
     }
 )
+DELETE_CONTRACT["interface"]["annotations"] = {
+    "readOnlyHint": False,
+    "destructiveHint": True,
+    "idempotentHint": False,
+    "openWorldHint": True,
+}
 DELETE_CONTRACT["governance"] = {
-    "annotations": {
-        "readOnly": False,
-        "destructive": True,
-        "idempotent": False,
-        "openWorld": True,
-    },
     "execution": {"mode": "propose-apply", "humanApproval": "required"},
     "caching": {"cacheable": False},
 }
@@ -145,9 +145,8 @@ def test_the_delete_baseline_is_valid(validator):
 
 
 def test_get_must_be_read_only(validator):
-    contract = broken(READ_CONTRACT, governance__annotations={
-        "readOnly": False, "destructive": False, "idempotent": True, "openWorld": True
-    })
+    contract = copy.deepcopy(READ_CONTRACT)
+    contract["interface"]["annotations"]["readOnlyHint"] = False
     contract["governance"]["caching"] = {"cacheable": False}
     contract["binding"]["http"]["auth"] = {"scopes": ["coupons.read_write"]}
     assert errors(validator, contract), "a GET declared not-read-only should be rejected"
@@ -162,7 +161,7 @@ def test_writes_cannot_claim_to_be_read_only(validator, method):
 
 def test_delete_must_be_destructive(validator):
     contract = copy.deepcopy(DELETE_CONTRACT)
-    contract["governance"]["annotations"]["destructive"] = False
+    contract["interface"]["annotations"]["destructiveHint"] = False
     assert errors(validator, contract)
 
 

@@ -46,25 +46,42 @@ One endpoint, one tool, one file. Three layers:
   "contractVersion": "1.0.0",
   "kind": "single-tool",
 
-  "interface":  { /* WHAT: name, description, whenToUse/whenNotToUse,
-                     the tool's input schema, the unwrapped response shape */ },
+  "interface":  { /* WHAT: name, title, description, whenToUse/whenNotToUse,
+                     MCP annotations (readOnlyHint, destructiveHint, ...),
+                     the tool's input schema, the unwrapped response + ui hint */ },
 
   "binding":    { /* WHERE: type "http" -> which upstream (api), method, path,
                      required scopes, argument->request mapping, envelope unwrapping.
                      Or type "none" -> a builtin:// pure function. */ },
 
-  "governance": { /* HOW: readOnly/destructive annotations, direct vs
-                     propose-apply execution, caching policy */ }
+  "dependencies": [ /* other contracts this tool relies on, with reasons */ ],
+
+  "governance": { /* HOW: direct vs propose-apply execution, caching policy --
+                     cross-checked against the annotations and the method */ }
 }
 ```
 
-- **`interface`** is the agent-facing surface. It maps 1:1 to the standard MCP tool shape, plus
-  the routing hints (`whenToUse` / `whenNotToUse`) an agent decides by.
+- **`interface`** is the agent-facing surface. It maps 1:1 to the standard MCP tool declaration,
+  plus the routing hints (`whenToUse` / `whenNotToUse`) an agent decides by.
 - **`binding`** is the call. There is deliberately **no base URL and no secret** in a contract:
   the engine owns each upstream's host and resolves its credential at call time (for Salla, the
   installing merchant's OAuth token). You declare only the *scopes* that credential must carry.
-- **`governance`** is the permission slip. The schema cross-checks it against the binding, so the
-  layers cannot quietly disagree.
+- **`governance`** is the permission slip. The schema cross-checks it against the annotations and
+  the binding, so the layers cannot quietly disagree.
+
+### What every contract declares, and what it becomes
+
+| You declare | Where in the contract | What it becomes |
+|---|---|---|
+| tool name | `interface.name` | the MCP tool's `name` |
+| display title | `interface.title` | the MCP tool's `title` (and `annotations.title`) |
+| one-line purpose | `interface.description` | the MCP tool's `description` |
+| **core annotations** | `interface.annotations` — `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint` (MCP's exact names, all four required) | served verbatim as MCP `ToolAnnotations` — and cross-checked by the gate against the method and the caching policy |
+| **LLM guidance** | `interface.whenToUse` / `whenNotToUse` — what the tool is for, and what it is *not* for (name the sibling) | folded into the tool description for any MCP client, and published under `_meta` for structured routing |
+| arguments | `interface.input.schema` | the MCP tool's `inputSchema` |
+| **UI display** | `interface.response.ui` — `card` / `table` / `text` / `json`, with `{field}` interpolation | the rendering hint a client uses instead of dumping raw JSON |
+| **auth** | `binding.http.auth.scopes` | the scopes the engine's resolved credential must carry — never a secret, never a token |
+| **dependencies** | `dependencies[]` — `{contract, reason}` per dependent tool | reviewer + agent documentation (the POC engine does not resolve them yet) |
 
 ## Submit a tool — step by step
 
@@ -126,6 +143,11 @@ Rules marked **enforced** fail the gate. The rest are conventions your reviewer 
   record. The semantic gate rejects contracts without it.
 - Destructive tools must demand explicit intent in their hints — *"the merchant explicitly asks
   to delete…"*. **Enforced** by the semantic gate for DELETEs and anything marked destructive.
+- `annotations` uses **MCP's exact `ToolAnnotations` field names**, and all four are required so
+  intent is stated rather than defaulted: `readOnlyHint` (modifies nothing), `destructiveHint`
+  (may destroy or irreversibly change data), `idempotentHint` (same call twice, no extra
+  effect), `openWorldHint` (touches a live external world). **Enforced:** `readOnlyHint: true`
+  cannot pair with `destructiveHint: true`, and the method/governance rules below key off these.
 - `input.schema` exposes **only the arguments an agent should set**. An upstream list endpoint
   with twenty filters becomes a tool with three. Narrowing is the contract doing its job; set
   `additionalProperties: false`.
@@ -163,13 +185,15 @@ Rules marked **enforced** fail the gate. The rest are conventions your reviewer 
 
 ### Governance (all enforced)
 
+The gate cross-checks the annotations, the HTTP method, and the policy layer against each other:
+
 | Rule | Why |
 |---|---|
-| `GET` ⇒ `readOnly: true` | otherwise it is never cached and the agent is told it has side effects |
-| `POST/PUT/PATCH/DELETE` ⇒ `readOnly: false` | a write marked read-only would be cached — a stale result served as though the write happened |
-| `DELETE` ⇒ `destructive: true` + `humanApproval: "required"` | removing real data always gets a human in the loop |
-| destructive ⇒ never cacheable | caching a write is a correctness bug, not a preference |
-| cacheable ⇒ `readOnly: true` and `ttlSeconds` set | only reads may cache, and a cache with no TTL never expires |
+| `GET` ⇒ `readOnlyHint: true` | otherwise it is never cached and the agent is told it has side effects |
+| `POST/PUT/PATCH/DELETE` ⇒ `readOnlyHint: false` | a write marked read-only would be cached — a stale result served as though the write happened |
+| `DELETE` ⇒ `destructiveHint: true` + `humanApproval: "required"` | removing real data always gets a human in the loop |
+| `destructiveHint` ⇒ never cacheable | caching a write is a correctness bug, not a preference |
+| cacheable ⇒ `readOnlyHint: true` and `ttlSeconds` set | only reads may cache, and a cache with no TTL never expires |
 
 - `keyBy` lists the arguments that actually affect the result — **enforced** to name real
   arguments. Typical TTLs: 60–600s for store data.
@@ -181,6 +205,14 @@ Rules marked **enforced** fail the gate. The rest are conventions your reviewer 
 - `validation.rules` are regexes compiled into the generated code, so a malformed argument fails
   locally instead of costing a round trip and an upstream 422. Each rule's `field` must be a
   declared argument (**enforced**).
+
+### Dependencies
+
+- When your tool leans on another contract — ids that come from a list tool, state another
+  binding establishes — declare it: `{"contract": "list_coupons", "reason": "coupon ids come
+  from list_coupons"}`. It documents the relationship for the reviewer and the agent. The POC
+  engine does not resolve or order dependencies yet, so nothing breaks without them — but a
+  reviewer will ask.
 
 ## What a rejection looks like
 

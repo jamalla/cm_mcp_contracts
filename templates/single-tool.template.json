@@ -13,13 +13,21 @@
     "title": "TODO Human Readable Title",
     "description": "TODO one sentence, at least 20 characters, saying what this returns. The agent reads this to decide whether to pick you over a sibling tool.",
 
-    "_comment_hints": "The selection hints. Be concrete and name the sibling tool in whenNotToUse -- 'use get_coupon instead' is what stops the agent picking a list endpoint when the merchant named one record.",
+    "_comment_hints": "LLM guidance: whenToUse is what the tool is FOR, whenNotToUse is what it is NOT for. Be concrete and name the sibling tool -- 'use get_coupon instead' is what stops the agent picking a list endpoint when the merchant named one record.",
     "whenToUse": [
       "TODO a concrete situation where this tool is the right pick."
     ],
     "whenNotToUse": [
       "TODO a situation where the agent should reach for a named sibling instead."
     ],
+
+    "_comment_annotations": "MCP's core ToolAnnotations, served to clients verbatim. All four are required and the gate cross-checks them: GET must be readOnlyHint true, POST/PUT/PATCH/DELETE must be false, DELETE must be destructiveHint true. annotations.title comes from `title` above.",
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
 
     "input": {
       "_comment": "THE TOOL'S arguments, not the upstream's. An endpoint may accept twenty filters; expose only the few an agent should actually set. Narrowing the surface is the contract doing its job. Use friendly camelCase names here and map them to wire names under binding.http.parameters.",
@@ -109,19 +117,11 @@
     ]
   },
 
-  "_comment_dependencies": "Declared for documentation only -- the POC engine does not resolve these.",
+  "_comment_dependencies": "Other contracts this tool depends on, e.g. [{\"contract\": \"list_coupons\", \"reason\": \"coupon ids come from list_coupons\"}]. Documentation for the reviewer and the agent; the POC engine does not resolve or order these yet.",
   "dependencies": [],
 
   "governance": {
-    "_comment": "HOW IT IS ALLOWED TO RUN. This layer is ours; MCP leaves it open. The schema cross-checks it against the HTTP method, so these cannot quietly disagree with what the endpoint actually does.",
-
-    "_comment_annotations": "GET must be readOnly true. POST/PUT/PATCH/DELETE must be readOnly false, and DELETE must additionally be destructive with humanApproval required.",
-    "annotations": {
-      "readOnly": true,
-      "destructive": false,
-      "idempotent": true,
-      "openWorld": true
-    },
+    "_comment": "HOW IT IS ALLOWED TO RUN. This layer is ours; MCP leaves it open. The schema cross-checks it against interface.annotations and the HTTP method, so policy cannot quietly disagree with declared behavior.",
 
     "_comment_execution": "'direct' runs immediately. 'propose-apply' returns a proposal and waits for a human; it requires humanApproval 'required'.",
     "execution": {

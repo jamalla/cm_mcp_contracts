@@ -29,6 +29,12 @@
           }
         }
       }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
     }
   },
   "binding": {
@@ -50,12 +56,6 @@
     }
   },
   "governance": {
-    "annotations": {
-      "readOnly": true,
-      "destructive": false,
-      "idempotent": true,
-      "openWorld": true
-    },
     "execution": {
       "mode": "direct",
       "humanApproval": "never"

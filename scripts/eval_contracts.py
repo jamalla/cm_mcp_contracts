@@ -134,7 +134,7 @@ def judge_heuristically(path: Path, contract: dict) -> Verdict:
     name = interface.get("name", "(unnamed)")
     description = (interface.get("description") or "").strip()
     governance = contract.get("governance", {})
-    annotations = governance.get("annotations", {})
+    annotations = interface.get("annotations", {})
     caching = governance.get("caching", {})
     binding = contract.get("binding", {})
 
@@ -181,7 +181,7 @@ def judge_heuristically(path: Path, contract: dict) -> Verdict:
         # A tool that removes or rewrites data, whose whenToUse does not demand
         # explicit intent, invites the router to pick it on vague vocabulary
         # overlap with its read-only siblings.
-        if annotations.get("destructive") or http.get("method") == "DELETE":
+        if annotations.get("destructiveHint") or http.get("method") == "DELETE":
             intent_words = ("explicit", "asks to", "confirms", "requested")
             hints_text = " ".join(when_to_use).lower()
             if not any(word in hints_text for word in intent_words):

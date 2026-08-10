@@ -87,7 +87,7 @@ def _hint_for(error, location: str, message: str, contract: dict) -> str | None:
             if error.validator_value == READ_ONLY_SCOPE_PATTERN:
                 return (
                     "least privilege: a read-only tool must not request a read_write scope. "
-                    "Use the .read scope, or set annotations.readOnly to false if it really writes"
+                    "Use the .read scope, or set interface.annotations.readOnlyHint to false if it really writes"
                 )
             if error.validator_value == SCOPE_FORMAT_PATTERN:
                 return (
@@ -95,7 +95,7 @@ def _hint_for(error, location: str, message: str, contract: dict) -> str | None:
                     "e.g. coupons.read"
                 )
 
-    if location.endswith("annotations/readOnly"):
+    if location.endswith("annotations/readOnlyHint"):
         method = _http_method(contract)
         if "True was expected" in message:
             if method == "GET":
@@ -110,7 +110,7 @@ def _hint_for(error, location: str, message: str, contract: dict) -> str | None:
         if "False was expected" in message:
             return f"{method or 'this method'} changes store data, so it cannot be read-only"
 
-    if location.endswith("annotations/destructive"):
+    if location.endswith("annotations/destructiveHint"):
         if "True was expected" in message:
             return "DELETE removes real data; it is destructive regardless of intent"
         if "False was expected" in message:

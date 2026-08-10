@@ -25,13 +25,16 @@
   },
   "patternProperties": { "^_comment": true },
   "additionalProperties": false,
-  "allOf": [{ "$ref": "#/$defs/methodGovernanceRules" }],
+  "allOf": [
+    { "$ref": "#/$defs/methodGovernanceRules" },
+    { "$ref": "#/$defs/annotationGovernanceRules" }
+  ],
 
   "$defs": {
     "interface": {
       "type": "object",
-      "description": "What the tool is. Maps 1:1 to the standard MCP tool shape, plus the selection hints an agent routes on.",
-      "required": ["name", "description", "whenToUse", "input", "response"],
+      "description": "What the tool is. Maps 1:1 to the standard MCP tool declaration -- name, title, description, input schema, annotations -- plus the selection hints an agent routes on and the UI hint a client renders with.",
+      "required": ["name", "description", "whenToUse", "input", "response", "annotations"],
       "properties": {
         "name": {
           "type": "string",
@@ -39,7 +42,11 @@
           "maxLength": 64,
           "description": "snake_case, verb_noun. Becomes the MCP tool name, so it must be unique across the whole registry."
         },
-        "title": { "type": "string", "maxLength": 80 },
+        "title": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "Human-readable display name. Served as the MCP tool's title (and as annotations.title to clients that read it there)."
+        },
         "description": {
           "type": "string",
           "minLength": 20,
@@ -49,12 +56,49 @@
           "type": "array",
           "minItems": 1,
           "items": { "type": "string", "minLength": 10 },
-          "description": "Concrete situations where this tool is the right pick."
+          "description": "LLM guidance, positive half: concrete situations where this tool is the right pick. Folded into the tool description and published under _meta, so every MCP client benefits."
         },
         "whenNotToUse": {
           "type": "array",
           "items": { "type": "string", "minLength": 10 },
-          "description": "Situations where the agent should reach for a sibling tool instead. Name the sibling."
+          "description": "LLM guidance, negative half: situations where the agent should reach for a sibling tool instead. Name the sibling."
+        },
+        "annotations": {
+          "type": "object",
+          "description": "MCP's core ToolAnnotations, served to clients verbatim, using MCP's exact field names. They are behavior HINTS to clients and hard facts to our gate: the schema cross-checks them against the HTTP method and the governance layer. All four are required so the author states intent explicitly -- MCP's absent-field defaults (destructiveHint true, openWorldHint true) are for clients, not for reviews. annotations.title is filled from interface.title.",
+          "required": ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"],
+          "properties": {
+            "readOnlyHint": {
+              "type": "boolean",
+              "description": "True when the tool does not modify anything. Drives caching legality and what the agent is told about side effects."
+            },
+            "destructiveHint": {
+              "type": "boolean",
+              "description": "True when the tool may destroy or irreversibly change data (meaningful when readOnlyHint is false). Destructive tools are never cached and always need a human in the loop."
+            },
+            "idempotentHint": {
+              "type": "boolean",
+              "description": "True when calling the tool twice with the same arguments has no additional effect."
+            },
+            "openWorldHint": {
+              "type": "boolean",
+              "description": "True when the tool interacts with an open world of external entities (a live store, the internet); false for closed, self-contained computation."
+            }
+          },
+          "patternProperties": { "^_comment": true },
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "$comment": "A read-only tool cannot also be destructive.",
+              "if": {
+                "properties": { "readOnlyHint": { "const": true } },
+                "required": ["readOnlyHint"]
+              },
+              "then": {
+                "properties": { "destructiveHint": { "const": false } }
+              }
+            }
+          ]
         },
         "input": {
           "type": "object",
@@ -62,7 +106,7 @@
           "properties": {
             "schema": {
               "$ref": "#/$defs/jsonSchemaObject",
-              "description": "The TOOL's arguments, not the upstream's. Expose only the parameters an agent should set -- a contract narrowing a 20-filter endpoint to three useful ones is doing its job."
+              "description": "The TOOL's arguments, not the upstream's. Becomes the MCP tool's inputSchema. Expose only the parameters an agent should set -- a contract narrowing a 20-filter endpoint to three useful ones is doing its job."
             },
             "forbidden": {
               "type": "array",
@@ -83,13 +127,16 @@
             },
             "ui": {
               "type": "object",
-              "description": "Hint for how a client should render the result. {braces} interpolate response fields.",
+              "description": "How a client should display the result, when plain JSON is not the right rendering. {braces} interpolate response fields, e.g. title \"Coupon {code}\".",
               "required": ["display"],
               "properties": {
-                "display": { "enum": ["card", "table", "text", "json"] },
+                "display": {
+                  "enum": ["card", "table", "text", "json"],
+                  "description": "card: one record with a headline value. table: a collection, one row per item. text: a sentence. json: raw payload."
+                },
                 "title": { "type": "string" },
-                "primary": { "type": "string" },
-                "secondary": { "type": "string" }
+                "primary": { "type": "string", "description": "The headline value on a card." },
+                "secondary": { "type": "string", "description": "The supporting line under it." }
               },
               "patternProperties": { "^_comment": true },
               "additionalProperties": false
@@ -366,13 +413,20 @@
 
     "dependencies": {
       "type": "array",
-      "description": "Declared for documentation. The POC engine does not resolve these.",
+      "description": "Other contracts this tool depends on -- a lookup that must happen first, a session another binding establishes. Declared for the reviewer and the agent's documentation; the POC engine does not resolve or order them yet.",
       "items": {
         "type": "object",
         "required": ["contract", "reason"],
         "properties": {
-          "contract": { "type": "string" },
-          "reason": { "type": "string", "minLength": 10 }
+          "contract": {
+            "type": "string",
+            "description": "The tool name of the contract this one depends on."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "description": "Why the dependency exists, e.g. 'coupon ids come from list_coupons'."
+          }
         },
         "patternProperties": { "^_comment": true },
         "additionalProperties": false
@@ -381,21 +435,9 @@
 
     "governance": {
       "type": "object",
-      "description": "How the tool is allowed to run. This layer is ours -- MCP leaves it open.",
-      "required": ["annotations", "execution", "caching"],
+      "description": "How the tool is allowed to run -- OUR policy layer, which MCP leaves open. Cross-checked by the schema against interface.annotations and the HTTP method, so policy cannot quietly disagree with declared behavior.",
+      "required": ["execution", "caching"],
       "properties": {
-        "annotations": {
-          "type": "object",
-          "required": ["readOnly", "destructive", "idempotent", "openWorld"],
-          "properties": {
-            "readOnly": { "type": "boolean" },
-            "destructive": { "type": "boolean" },
-            "idempotent": { "type": "boolean" },
-            "openWorld": { "type": "boolean" }
-          },
-          "patternProperties": { "^_comment": true },
-          "additionalProperties": false
-        },
         "execution": {
           "type": "object",
           "required": ["mode", "humanApproval"],
@@ -423,26 +465,6 @@
 
       "allOf": [
         {
-          "$comment": "A destructive tool must never be cacheable. Caching a write is a correctness bug, not a preference.",
-          "if": {
-            "properties": { "annotations": { "properties": { "destructive": { "const": true } } } },
-            "required": ["annotations"]
-          },
-          "then": {
-            "properties": { "caching": { "properties": { "cacheable": { "const": false } } } }
-          }
-        },
-        {
-          "$comment": "A read-only tool cannot also be destructive.",
-          "if": {
-            "properties": { "annotations": { "properties": { "readOnly": { "const": true } } } },
-            "required": ["annotations"]
-          },
-          "then": {
-            "properties": { "annotations": { "properties": { "destructive": { "const": false } } } }
-          }
-        },
-        {
           "$comment": "propose-apply exists so a human can approve. Requiring the mode without the approval is a governance hole.",
           "if": {
             "properties": { "execution": { "properties": { "mode": { "const": "propose-apply" } } } },
@@ -450,22 +472,6 @@
           },
           "then": {
             "properties": { "execution": { "properties": { "humanApproval": { "const": "required" } } } }
-          }
-        },
-        {
-          "$comment": "Only a read-only tool may be cacheable. Without this, a write could be marked cacheable and merely happen not to be cached because the engine checks readOnly too -- an invariant enforced in one place and silently contradicted in another.",
-          "if": {
-            "properties": { "caching": { "properties": { "cacheable": { "const": true } } } },
-            "required": ["caching"]
-          },
-          "then": {
-            "properties": {
-              "annotations": {
-                "properties": { "readOnly": { "const": true } },
-                "required": ["readOnly"]
-              }
-            },
-            "required": ["annotations"]
           }
         },
         {
@@ -481,8 +487,71 @@
       ]
     },
 
+    "annotationGovernanceRules": {
+      "$comment": "Cross-layer rules tying the MCP annotations to the governance policy. A hint that lies to clients while policy quietly does the opposite is worse than either mistake alone.",
+      "allOf": [
+        {
+          "$comment": "A destructive tool must never be cacheable. Caching a write is a correctness bug, not a preference.",
+          "if": {
+            "properties": {
+              "interface": {
+                "properties": {
+                  "annotations": {
+                    "properties": { "destructiveHint": { "const": true } },
+                    "required": ["destructiveHint"]
+                  }
+                },
+                "required": ["annotations"]
+              }
+            },
+            "required": ["interface"]
+          },
+          "then": {
+            "properties": {
+              "governance": {
+                "properties": {
+                  "caching": { "properties": { "cacheable": { "const": false } } }
+                }
+              }
+            }
+          }
+        },
+        {
+          "$comment": "Only a read-only tool may be cacheable. Without this, a write could be marked cacheable and merely happen not to be cached because the engine checks readOnlyHint too -- an invariant enforced in one place and silently contradicted in another.",
+          "if": {
+            "properties": {
+              "governance": {
+                "properties": {
+                  "caching": {
+                    "properties": { "cacheable": { "const": true } },
+                    "required": ["cacheable"]
+                  }
+                },
+                "required": ["caching"]
+              }
+            },
+            "required": ["governance"]
+          },
+          "then": {
+            "properties": {
+              "interface": {
+                "properties": {
+                  "annotations": {
+                    "properties": { "readOnlyHint": { "const": true } },
+                    "required": ["readOnlyHint"]
+                  }
+                },
+                "required": ["annotations"]
+              }
+            },
+            "required": ["interface"]
+          }
+        }
+      ]
+    },
+
     "methodGovernanceRules": {
-      "$comment": "Cross-layer rules tying the HTTP verb and its scopes to the governance annotations. These catch the mistakes that matter: a write tool marked read-only would be cached and served stale, and a read tool asking for read_write hands the store more access than the job needs.",
+      "$comment": "Cross-layer rules tying the HTTP verb and its scopes to the MCP annotations. These catch the mistakes that matter: a write tool marked read-only would be cached and served stale, and a read tool asking for read_write hands the store more access than the job needs.",
       "allOf": [
         {
           "$comment": "GET is a read. Marking it otherwise disables caching for no reason and misleads the agent.",
@@ -500,17 +569,17 @@
           },
           "then": {
             "properties": {
-              "governance": {
+              "interface": {
                 "properties": {
                   "annotations": {
-                    "properties": { "readOnly": { "const": true } },
-                    "required": ["readOnly"]
+                    "properties": { "readOnlyHint": { "const": true } },
+                    "required": ["readOnlyHint"]
                   }
                 },
                 "required": ["annotations"]
               }
             },
-            "required": ["governance"]
+            "required": ["interface"]
           }
         },
         {
@@ -532,21 +601,21 @@
           },
           "then": {
             "properties": {
-              "governance": {
+              "interface": {
                 "properties": {
                   "annotations": {
-                    "properties": { "readOnly": { "const": false } },
-                    "required": ["readOnly"]
+                    "properties": { "readOnlyHint": { "const": false } },
+                    "required": ["readOnlyHint"]
                   }
                 },
                 "required": ["annotations"]
               }
             },
-            "required": ["governance"]
+            "required": ["interface"]
           }
         },
         {
-          "$comment": "DELETE removes real data. It is destructive whatever the author felt about it.",
+          "$comment": "DELETE removes real data. It is destructive whatever the author felt about it, and always gets a human in the loop.",
           "if": {
             "properties": {
               "binding": {
@@ -564,21 +633,26 @@
           },
           "then": {
             "properties": {
-              "governance": {
+              "interface": {
                 "properties": {
                   "annotations": {
-                    "properties": { "destructive": { "const": true } },
-                    "required": ["destructive"]
-                  },
+                    "properties": { "destructiveHint": { "const": true } },
+                    "required": ["destructiveHint"]
+                  }
+                },
+                "required": ["annotations"]
+              },
+              "governance": {
+                "properties": {
                   "execution": {
                     "properties": { "humanApproval": { "const": "required" } },
                     "required": ["humanApproval"]
                   }
                 },
-                "required": ["annotations", "execution"]
+                "required": ["execution"]
               }
             },
-            "required": ["governance"]
+            "required": ["interface", "governance"]
           }
         },
         {
@@ -589,17 +663,17 @@
                 "properties": { "type": { "const": "http" } },
                 "required": ["type"]
               },
-              "governance": {
+              "interface": {
                 "properties": {
                   "annotations": {
-                    "properties": { "readOnly": { "const": true } },
-                    "required": ["readOnly"]
+                    "properties": { "readOnlyHint": { "const": true } },
+                    "required": ["readOnlyHint"]
                   }
                 },
                 "required": ["annotations"]
               }
             },
-            "required": ["binding", "governance"]
+            "required": ["binding", "interface"]
           },
           "then": {
             "properties": {
@@ -629,17 +703,17 @@
                 "properties": { "type": { "const": "http" } },
                 "required": ["type"]
               },
-              "governance": {
+              "interface": {
                 "properties": {
                   "annotations": {
-                    "properties": { "readOnly": { "const": false } },
-                    "required": ["readOnly"]
+                    "properties": { "readOnlyHint": { "const": false } },
+                    "required": ["readOnlyHint"]
                   }
                 },
                 "required": ["annotations"]
               }
             },
-            "required": ["binding", "governance"]
+            "required": ["binding", "interface"]
           },
           "then": {
             "properties": {
