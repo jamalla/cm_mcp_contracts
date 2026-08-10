@@ -47,7 +47,6 @@ READ_CONTRACT = {
     "binding": {
         "type": "http",
         "http": {
-            "operationId": "List-Coupons",
             "method": "GET",
             "path": "/coupons",
             "auth": {"scopes": ["coupons.read"]},
@@ -86,7 +85,6 @@ DELETE_CONTRACT["interface"]["input"] = {
 }
 DELETE_CONTRACT["binding"]["http"].update(
     {
-        "operationId": "Delete-Coupon",
         "method": "DELETE",
         "path": "/coupons/{coupon_id}",
         "auth": {"scopes": ["coupons.read_write"]},

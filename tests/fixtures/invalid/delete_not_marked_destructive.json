@@ -46,7 +46,6 @@
   "binding": {
     "type": "http",
     "http": {
-      "operationId": "Delete-Coupon",
       "method": "DELETE",
       "path": "/coupons/{coupon_id}",
       "auth": {

@@ -94,7 +94,6 @@ TEMPLATE_FILLS = {
     "TODO_snake_case_name": "get_coupon",
     "TODO_domain.read_write": "coupons.read_write",
     "TODO_domain.read": "coupons.read",
-    "TODO-Operation-Id": "Coupon-Details",
 }
 
 

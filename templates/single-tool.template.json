@@ -69,8 +69,7 @@
       "_comment_api": "Which configured upstream to call. 'salla' is the default and the platform's primary upstream; a new value needs the engine configured for it first.",
       "api": "salla",
 
-      "_comment_traceability": "Optional but strongly recommended: operationId (when the upstream publishes one -- Salla does) and docsUrl let a reviewer check this contract against its source without guessing which endpoint you meant.",
-      "operationId": "TODO-Operation-Id",
+      "_comment_traceability": "Optional but strongly recommended: summary and docsUrl let a reviewer check this contract against its source without guessing which endpoint you meant.",
       "summary": "TODO the upstream's own summary for this endpoint",
       "docsUrl": "https://docs.salla.dev/TODO",
 

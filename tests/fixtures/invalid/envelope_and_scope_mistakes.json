@@ -40,7 +40,6 @@
   "binding": {
     "type": "http",
     "http": {
-      "operationId": "List-Coupon-Codes",
       "method": "GET",
       "path": "/coupons/codes",
       "auth": {

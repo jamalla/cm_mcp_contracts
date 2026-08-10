@@ -70,9 +70,9 @@ Fail a contract when any of these hold:
 - whenNotToUse misses the obvious confusion with a sibling tool (list vs detail,
   read vs write) or fails to name the sibling.
 - The tool duplicates an existing registry entry without a clear distinction.
-- The binding does not match what the interface claims: a path or operationId
-  that plainly belongs to a different endpoint than the description promises,
-  or a response schema describing fields the upstream does not return.
+- The binding does not match what the interface claims: a path that plainly
+  belongs to a different endpoint than the description promises, or a response
+  schema describing fields the upstream does not return.
 - The input surface is careless: arguments exposed that an agent should never
   control (per_page in the thousands, raw status ids with no guard), or a
   destructive tool whose hints would let it trigger on vague vocabulary.

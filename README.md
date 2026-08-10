@@ -86,8 +86,8 @@ One endpoint, one tool, one file. Three layers:
 ## Submit a tool — step by step
 
 1. **Pick the endpoint.** For Salla, its docs page ([docs.salla.dev](https://docs.salla.dev/))
-   gives you the method, path, scopes and `operationId` ready to copy — using them saves your
-   reviewer guesswork, and `docsUrl` + `operationId` are the cheapest traceability you can offer.
+   gives you the method, path and scopes ready to copy — using them saves your reviewer
+   guesswork, and `docsUrl` is the cheapest traceability you can offer.
 2. **Copy the template**: `templates/single-tool.template.json` → `contracts/<tool_name>.json`.
 3. **Fill it in**, following the conventions below. The `$schema` key gives you editor
    validation as you type, so most mistakes never reach CI.
@@ -160,8 +160,8 @@ Rules marked **enforced** fail the gate. The rest are conventions your reviewer 
 - `api` selects the configured upstream; it defaults to `"salla"`. A new value requires the
   engine to be configured for that upstream first — coordinate before inventing one.
 - **Never a base URL, never a secret.** **Enforced:** the schema has no field for either.
-- `operationId`, `summary`, `docsUrl` are optional traceability; include them whenever the
-  upstream publishes them.
+- `summary` and `docsUrl` are optional traceability; include them whenever the upstream
+  publishes them — they are what lets a reviewer check the contract against its source.
 - `path` keeps the upstream's placeholders verbatim: `/coupons/{coupon_id}`.
 - **Every `{placeholder}` needs a `parameters.path` entry, and every mapping must read a declared
   argument** — **enforced** by cross-reference checks, in both directions.
@@ -247,7 +247,7 @@ format so they can return without breaking existing contracts:
 - **`multi-tool` packages** — several endpoints from one domain (all the Coupons endpoints,
   say) shipped and reviewed as a unit, expanded into individual tools at registry load. Worth it
   once domains grow past a handful of files with a shared owner and lifecycle.
-- **`openapi-import`** — name the operationIds you want from an upstream's OpenAPI spec and let
+- **`openapi-import`** — pick the operations you want from an upstream's OpenAPI spec and let
   a converter emit full single-tool contracts, which then flow through this same gate. The
   accelerator for onboarding a large surface without hand-writing every contract.
 

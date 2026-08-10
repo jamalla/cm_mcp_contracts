@@ -202,11 +202,6 @@
           "default": "salla",
           "description": "Which configured upstream the engine should call. Defaults to \"salla\", the platform's primary upstream. New values require the engine to be configured for that upstream first."
         },
-        "operationId": {
-          "type": "string",
-          "pattern": "^[A-Za-z][A-Za-z0-9-]*$",
-          "description": "The upstream's own operationId when it publishes one (Salla does, e.g. List-Coupons). Optional, but the cheapest traceability a reviewer can get."
-        },
         "summary": {
           "type": "string",
           "description": "The upstream's summary for the endpoint, copied so a reviewer can compare without leaving the diff."
