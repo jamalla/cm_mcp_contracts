@@ -44,7 +44,7 @@
     },
 
     "response": {
-      "_comment": "Describe what is INSIDE the envelope's data. Never model the {status, success, data} wrapper -- the engine unwraps it before anyone sees it.",
+      "_comment": "Describe ONE record, as it appears inside the envelope's data. Never model the {status, success, data} wrapper -- the engine unwraps it. For a list endpoint this is still a single item: the engine returns {items, count, pagination} and shapes each item to this schema, so a category looks the same here whether the tool fetches one or many.",
       "schema": {
         "type": "object",
         "properties": {

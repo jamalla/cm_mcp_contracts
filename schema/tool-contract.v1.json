@@ -123,7 +123,7 @@
           "properties": {
             "schema": {
               "$ref": "#/$defs/jsonSchemaObject",
-              "description": "Shape of the UNWRAPPED payload. Describe what is inside the envelope's data, never the envelope itself."
+              "description": "Shape of ONE record, unwrapped. Describe what is inside the envelope's data, never the envelope itself -- and for a list endpoint (binding.http.response.collection: true) describe a single item, not the array: the engine returns {items, count, pagination} and shapes each item to this. One rule for detail and list endpoints, so the same category object is described the same way in get_category and list_categories."
             },
             "ui": {
               "type": "object",

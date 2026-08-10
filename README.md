@@ -156,9 +156,11 @@ Rules marked **enforced** fail the gate. The rest are conventions your reviewer 
 - `input.schema` exposes **only the arguments an agent should set**. An upstream list endpoint
   with twenty filters becomes a tool with three. Narrowing is the contract doing its job; set
   `additionalProperties: false`.
-- `response.schema` describes the **unwrapped payload** — what is inside the envelope's `data` —
-  never `{status, success, data}` itself. The optional `ui` block hints rendering, with
-  `{braces}` interpolating response fields.
+- `response.schema` describes **one record**, unwrapped — what a single item inside the envelope's
+  `data` looks like — never `{status, success, data}` itself. For a list endpoint it stays a single
+  object: the engine returns `{items, count, pagination}` and shapes each item to this schema, so a
+  category is described identically whether the tool fetches one or many. The optional `ui` block
+  hints rendering, with `{braces}` interpolating response fields.
 
 ### The binding (where it calls)
 

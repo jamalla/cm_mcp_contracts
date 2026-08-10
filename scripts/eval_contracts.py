@@ -27,7 +27,15 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# .env.example documents OPENAI_API_KEY for local runs, so a local run has to read
+# it. Without this the key sits in .env doing nothing and every local review
+# silently falls back to heuristics -- so the gate a contributor sees locally is
+# not the gate CI runs.
+load_dotenv(REPO_ROOT / ".env")
 CONTRACTS_DIR = REPO_ROOT / "contracts"
 
 # Override with CM_JUDGE_MODEL when OpenAI ships a better fit; a bad model id
@@ -81,6 +89,17 @@ Fail a contract when any of these hold:
 - Anything unsafe for the merchant: over-broad scopes for the job, a write
   reachable without explicit intent, response fields that leak data the tool has
   no business returning.
+
+Conventions of this registry, so you do not fail a contract for following them:
+- `interface.response.schema` describes ONE record. When
+  `binding.http.response.collection` is true the engine returns
+  {items: [...], count, pagination} and validates each item against that schema,
+  so a single-object schema beside collection: true is correct, not a mismatch.
+- The envelope is never modelled in a contract. The engine unwraps `dataPath` and
+  attaches `pagination` itself; a contract that described {status, success, data}
+  would be wrong.
+- No contract carries a base URL, a host, or a credential. The engine owns those
+  per upstream. Their absence is the design, not an omission.
 
 Judge only what is in front of you. Do not fail a contract for style, naming
 preferences, or a missing optional field. Be specific in every reason: name the

@@ -55,10 +55,11 @@ THE WORK
      a page argument is mandatory. Set additionalProperties: false.
    - parameters: map every exposed argument to Salla's wire names; every
      mapping must read a declared argument.
-   - response: describe the UNWRAPPED payload (what is inside data), pick the
-     ~5-6 fields per category an agent actually cares about, set
-     collection/pagination truthfully, and add a ui hint (a table fits a
-     category listing).
+   - response: describe ONE category as it appears inside data -- a single
+     object even though this endpoint returns many, because the engine wraps
+     them as {items, count, pagination}. Pick the ~5-6 fields per category an
+     agent actually cares about, set collection/pagination truthfully, and add a
+     ui hint (a table fits a category listing).
    - response.errors: copy the endpoint's documented failure statuses from its
      docs page and write each meaning for the agent to relay to a user.
    - auth.scopes: the narrowest scope Salla's docs state for this endpoint.
