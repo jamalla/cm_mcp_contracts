@@ -7,23 +7,62 @@
     "name": "CouponCodes",
     "title": "List Coupon Codes",
     "description": "Lists codes.",
-    "whenToUse": ["The merchant asks for coupon codes."],
-    "input": { "schema": { "type": "object", "properties": { "couponId": { "type": "integer" } } } },
-    "response": { "schema": { "type": "object", "properties": { "code": { "type": "string" } } } }
+    "whenToUse": [
+      "The merchant asks for coupon codes."
+    ],
+    "input": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "couponId": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "response": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        }
+      }
+    }
   },
   "binding": {
-    "type": "salla",
-    "salla": {
+    "type": "http",
+    "http": {
       "operationId": "List-Coupon-Codes",
       "method": "GET",
       "path": "/coupons/codes",
-      "auth": { "scopes": ["coupons.write"] },
-      "response": { "dataPath": "data", "collection": false, "pagination": "standard" }
+      "auth": {
+        "scopes": [
+          "coupons.write"
+        ]
+      },
+      "response": {
+        "dataPath": "data",
+        "collection": false,
+        "pagination": "standard"
+      }
     }
   },
   "governance": {
-    "annotations": { "readOnly": true, "destructive": false, "idempotent": true, "openWorld": true },
-    "execution": { "mode": "direct", "humanApproval": "never" },
-    "caching": { "cacheable": true, "ttlSeconds": 300 }
+    "annotations": {
+      "readOnly": true,
+      "destructive": false,
+      "idempotent": true,
+      "openWorld": true
+    },
+    "execution": {
+      "mode": "direct",
+      "humanApproval": "never"
+    },
+    "caching": {
+      "cacheable": true,
+      "ttlSeconds": 300
+    }
   }
 }

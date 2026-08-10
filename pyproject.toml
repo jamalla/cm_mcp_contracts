@@ -1,7 +1,7 @@
 [project]
 name = "cm-mcp-contracts"
 version = "0.1.0"
-description = "The contract rulebook, templates, approved tool contracts, and the governance gate"
+description = "Tool contracts for the code-mode MCP platform: the rulebook, templates, approved contracts, and the governance gate"
 requires-python = ">=3.11"
 dependencies = [
     "jsonschema>=4.23",

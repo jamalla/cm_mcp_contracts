@@ -37,11 +37,9 @@ def git_sha() -> str:
 
 
 def tool_names(contract: dict) -> list[str]:
-    if contract.get("kind") == "multi-tool":
-        return [t.get("interface", {}).get("name", "?") for t in contract.get("tools", [])]
-    if contract.get("kind") == "single-tool":
-        return [contract.get("interface", {}).get("name", "?")]
-    return []
+    """One endpoint per contract, so at most one name."""
+    name = contract.get("interface", {}).get("name")
+    return [name] if name else []
 
 
 def main() -> int:

@@ -77,11 +77,9 @@ def test_rejections_name_the_offending_field(path, validator):
 
     for problem in problems:
         assert ": " in problem, problem
+        # The binding oneOf must be resolved to the branch the author meant,
+        # never dumped as an undifferentiated pile of every branch's complaints.
         assert "is not valid under any of the given schemas" not in problem, problem
-
-    # The branch-selection logic must not report the multi-tool branch's
-    # complaint on a single-tool contract -- the bug that made these useless.
-    assert not any("'package' is a required property" in p for p in problems), problems
 
 
 @pytest.mark.parametrize("path", TEMPLATES, ids=lambda p: p.name)
@@ -90,18 +88,13 @@ def test_templates_point_at_the_schema(path):
     assert template["$schema"] == "../schema/tool-contract.v1.json"
 
 
-# What a contributor types over the placeholders. Names must be snake_case, scopes
-# must look like a real Salla scope, and operationIds must match Salla's style.
+# What a contributor types over the placeholders. Order matters: read_write must
+# be replaced before read, or the longer placeholder is corrupted.
 TEMPLATE_FILLS = {
     "TODO_snake_case_name": "get_coupon",
-    "TODO_package_name": "coupon_tools",
-    "TODO_first_tool": "list_coupons",
-    "TODO_second_tool": "delete_coupon",
     "TODO_domain.read_write": "coupons.read_write",
     "TODO_domain.read": "coupons.read",
-    "TODO-Salla-Operation-Id": "Coupon-Details",
-    "TODO-List-Something": "List-Coupons",
-    "TODO-Delete-Something": "Delete-Coupon",
+    "TODO-Operation-Id": "Coupon-Details",
 }
 
 
@@ -141,3 +134,25 @@ def test_comment_keys_are_allowed_by_the_schema(path, validator):
         "_comment_extra": "and a second one",
     }
     assert not list(validator.iter_errors(with_comments))
+
+
+def test_removed_kinds_point_at_future_work(tmp_path, validator):
+    """multi-tool and openapi-import were cut from v1 to keep the rulebook small.
+
+    Someone submitting one should learn where those kinds went, not just that
+    'single-tool' was expected.
+    """
+    import copy
+
+    from scripts.validate_contracts import validate_file
+    from tests.test_salla_rules import READ_CONTRACT
+
+    for removed in ("multi-tool", "openapi-import"):
+        contract = copy.deepcopy(READ_CONTRACT)
+        contract["kind"] = removed
+        path = tmp_path / f"{removed}.json"
+        path.write_text(json.dumps(contract), encoding="utf-8")
+
+        problems = validate_file(path, validator)
+        assert problems, f"{removed} should not validate"
+        assert any("future work" in line for line in problems), problems

@@ -1,4 +1,4 @@
-"""The Salla-specific rules the meta-schema exists to enforce.
+"""The rules the meta-schema exists to enforce, modeled on the Salla API's nature.
 
 Anyone can write a schema that checks required fields. The rules worth having are
 the ones that catch a contract which is well-formed and still wrong: a write
@@ -45,8 +45,8 @@ READ_CONTRACT = {
         "response": {"schema": {"type": "object", "properties": {"id": {"type": "integer"}}}},
     },
     "binding": {
-        "type": "salla",
-        "salla": {
+        "type": "http",
+        "http": {
             "operationId": "List-Coupons",
             "method": "GET",
             "path": "/coupons",
@@ -84,7 +84,7 @@ DELETE_CONTRACT["interface"]["input"] = {
         "additionalProperties": False,
     }
 }
-DELETE_CONTRACT["binding"]["salla"].update(
+DELETE_CONTRACT["binding"]["http"].update(
     {
         "operationId": "Delete-Coupon",
         "method": "DELETE",
@@ -149,14 +149,14 @@ def test_get_must_be_read_only(validator):
         "readOnly": False, "destructive": False, "idempotent": True, "openWorld": True
     })
     contract["governance"]["caching"] = {"cacheable": False}
-    contract["binding"]["salla"]["auth"] = {"scopes": ["coupons.read_write"]}
+    contract["binding"]["http"]["auth"] = {"scopes": ["coupons.read_write"]}
     assert errors(validator, contract), "a GET declared not-read-only should be rejected"
 
 
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
 def test_writes_cannot_claim_to_be_read_only(validator, method):
     contract = broken(READ_CONTRACT)
-    contract["binding"]["salla"]["method"] = method
+    contract["binding"]["http"]["method"] = method
     assert errors(validator, contract), f"{method} marked read-only should be rejected"
 
 
@@ -178,14 +178,14 @@ def test_delete_must_require_human_approval(validator):
 def test_a_read_only_tool_cannot_request_a_write_scope(validator):
     """The rule that protects every merchant who installs the app."""
     contract = copy.deepcopy(READ_CONTRACT)
-    contract["binding"]["salla"]["auth"]["scopes"] = ["coupons.read_write"]
+    contract["binding"]["http"]["auth"]["scopes"] = ["coupons.read_write"]
     assert errors(validator, contract)
 
 
 def test_a_write_tool_cannot_run_on_a_read_scope(validator):
     """Salla would answer with a 401 at runtime; reject it at review time."""
     contract = copy.deepcopy(DELETE_CONTRACT)
-    contract["binding"]["salla"]["auth"]["scopes"] = ["coupons.read"]
+    contract["binding"]["http"]["auth"]["scopes"] = ["coupons.read"]
     assert errors(validator, contract)
 
 
@@ -194,14 +194,14 @@ def test_a_write_tool_cannot_run_on_a_read_scope(validator):
 )
 def test_malformed_scopes_are_rejected(validator, scope):
     contract = copy.deepcopy(READ_CONTRACT)
-    contract["binding"]["salla"]["auth"]["scopes"] = [scope]
+    contract["binding"]["http"]["auth"]["scopes"] = [scope]
     assert errors(validator, contract), f"{scope!r} is not a Salla scope"
 
 
 def test_scopes_are_mandatory(validator):
     """Without a declared scope nobody can review what access the tool needs."""
     contract = copy.deepcopy(READ_CONTRACT)
-    del contract["binding"]["salla"]["auth"]
+    del contract["binding"]["http"]["auth"]
     assert errors(validator, contract)
 
 
@@ -226,14 +226,14 @@ def test_a_cacheable_tool_must_set_a_ttl(validator):
 
 def test_a_paginated_response_must_be_a_collection(validator):
     contract = copy.deepcopy(READ_CONTRACT)
-    contract["binding"]["salla"]["response"]["collection"] = False
+    contract["binding"]["http"]["response"]["collection"] = False
     assert errors(validator, contract)
 
 
 def test_data_path_is_required(validator):
     """The engine needs to know what to unwrap out of Salla's envelope."""
     contract = copy.deepcopy(READ_CONTRACT)
-    del contract["binding"]["salla"]["response"]["dataPath"]
+    del contract["binding"]["http"]["response"]["dataPath"]
     assert errors(validator, contract)
 
 
@@ -242,7 +242,7 @@ def test_data_path_is_required(validator):
 
 def test_a_query_parameter_cannot_be_both_constant_and_argument_fed(validator):
     contract = copy.deepcopy(READ_CONTRACT)
-    contract["binding"]["salla"]["parameters"]["query"] = [
+    contract["binding"]["http"]["parameters"]["query"] = [
         {"name": "status", "from": "status", "constant": "active"}
     ]
     assert errors(validator, contract)
@@ -251,27 +251,31 @@ def test_a_query_parameter_cannot_be_both_constant_and_argument_fed(validator):
 def test_mapped_body_requires_fields(validator):
     """mode 'mapped' with no fields sends an empty body, which is never intended."""
     contract = copy.deepcopy(DELETE_CONTRACT)
-    contract["binding"]["salla"]["parameters"]["body"] = {"mode": "mapped"}
+    contract["binding"]["http"]["parameters"]["body"] = {"mode": "mapped"}
     assert errors(validator, contract)
 
 
 # -- the binding surface -------------------------------------------------------
 
 
-def test_a_generic_http_binding_is_not_accepted(validator):
-    """This registry serves Salla. An arbitrary URL is out of scope by design."""
+def test_an_unknown_binding_type_is_not_accepted(validator):
+    """Only http (a configured upstream) and none (a builtin) exist."""
     contract = copy.deepcopy(READ_CONTRACT)
-    contract["binding"] = {
-        "type": "http",
-        "http": {"baseUrl": "https://anywhere.example", "method": "GET", "path": "/x"},
-    }
+    contract["binding"] = {"type": "grpc", "grpc": {"service": "coupons"}}
     assert errors(validator, contract)
+
+
+def test_the_upstream_is_selected_by_name_not_by_url(validator):
+    """binding.http.api names a configured upstream; the engine owns its host."""
+    contract = copy.deepcopy(READ_CONTRACT)
+    contract["binding"]["http"]["api"] = "salla"
+    assert not errors(validator, contract)
 
 
 def test_no_base_url_may_be_pinned_in_a_contract(validator):
     """The engine owns the host, so a contract cannot pin production or drift."""
     contract = copy.deepcopy(READ_CONTRACT)
-    contract["binding"]["salla"]["baseUrl"] = "https://api.salla.dev/admin/v2"
+    contract["binding"]["http"]["baseUrl"] = "https://api.salla.dev/admin/v2"
     assert errors(validator, contract)
 
 

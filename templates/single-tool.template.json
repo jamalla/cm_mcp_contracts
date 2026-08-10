@@ -1,7 +1,7 @@
 {
   "$schema": "../schema/tool-contract.v1.json",
-  "_comment": "STARTER FILE for one Salla Admin API endpoint. Copy me into contracts/<tool_name>.json, fill every TODO, delete the _comment keys if you like (the schema allows them either way), and open a PR. Your editor validates against the schema as you type, so most mistakes surface before CI.",
-  "_comment_workflow": "Open the endpoint on docs.salla.dev first. Everything below -- operationId, method, path, scopes, parameters -- is copied from there, not invented. If a value is not in Salla's docs, it does not belong here.",
+  "_comment": "STARTER FILE for one upstream REST endpoint. Copy me into contracts/<tool_name>.json, fill every TODO, delete the _comment keys if you like (the schema allows them either way), and open a PR. Your editor validates against the schema as you type, so most mistakes surface before CI.",
+  "_comment_upstream": "The platform's primary upstream is the Salla Admin API; for Salla endpoints, docs.salla.dev is the reference for method, path and scopes, and copying from it saves your reviewer a lot of back-and-forth. The format itself is not Salla-only -- any upstream the engine is configured for works, selected by binding.http.api.",
 
   "contractVersion": "1.0.0",
   "kind": "single-tool",
@@ -22,7 +22,7 @@
     ],
 
     "input": {
-      "_comment": "THE TOOL'S arguments, not Salla's. A Salla list endpoint may accept twenty filters; expose only the few an agent should actually set. Narrowing the surface is the contract doing its job. Use friendly camelCase names here and map them to Salla's wire names under binding.salla.parameters.",
+      "_comment": "THE TOOL'S arguments, not the upstream's. An endpoint may accept twenty filters; expose only the few an agent should actually set. Narrowing the surface is the contract doing its job. Use friendly camelCase names here and map them to wire names under binding.http.parameters.",
       "schema": {
         "type": "object",
         "properties": {
@@ -36,7 +36,7 @@
     },
 
     "response": {
-      "_comment": "Describe what is INSIDE Salla's `data`. Never model the {status, success, data} envelope -- the engine unwraps it before anyone sees it.",
+      "_comment": "Describe what is INSIDE the envelope's data. Never model the {status, success, data} wrapper -- the engine unwraps it before anyone sees it.",
       "schema": {
         "type": "object",
         "properties": {
@@ -55,37 +55,38 @@
   },
 
   "binding": {
-    "_comment": "WHERE IT CALLS. Note there is no baseUrl: the engine owns it, so a contract cannot pin production and cannot drift when Salla moves. Use type 'none' with a builtin:// handler instead if this tool computes rather than fetches.",
-    "type": "salla",
-    "salla": {
-      "_comment_traceability": "operationId and docsUrl come straight from Salla's spec. They are what lets a reviewer check this contract against the source without guessing which endpoint you meant.",
-      "operationId": "TODO-Salla-Operation-Id",
-      "summary": "TODO Salla's own summary for this endpoint, copied verbatim",
+    "_comment": "WHERE IT CALLS. Note there is no baseUrl: the engine owns each upstream's host and credentials, so a contract cannot pin production. Use type 'none' with a builtin:// handler instead if this tool computes rather than fetches.",
+    "type": "http",
+    "http": {
+      "_comment_api": "Which configured upstream to call. 'salla' is the default and the platform's primary upstream; a new value needs the engine configured for it first.",
+      "api": "salla",
+
+      "_comment_traceability": "Optional but strongly recommended: operationId (when the upstream publishes one -- Salla does) and docsUrl let a reviewer check this contract against its source without guessing which endpoint you meant.",
+      "operationId": "TODO-Operation-Id",
+      "summary": "TODO the upstream's own summary for this endpoint",
       "docsUrl": "https://docs.salla.dev/TODO",
 
       "method": "GET",
       "path": "/TODO/{TODO_id}",
-      "apiVersion": "admin/v2",
 
-      "_comment_auth": "No secret is named here. A Salla app acts on behalf of a merchant, so the engine resolves that store's OAuth token at call time. You only declare which scopes the token must carry -- copy them from the Scopes box on the endpoint's docs page. Ask for the narrowest that works: a read-only tool must use .read, and the schema enforces it.",
+      "_comment_auth": "No secret is named here. The engine resolves the upstream credential at call time -- for Salla, the installing merchant's OAuth token. You only declare which scopes it must carry, in the <domain>.read / <domain>.read_write convention. Ask for the narrowest that works: a read-only tool must use .read, and the schema enforces it.",
       "auth": {
         "scopes": ["TODO_domain.read"]
       },
 
-      "_comment_parameters": "How the tool's arguments become a Salla request. `name` is Salla's wire name, `from` is the tool argument feeding it. Omit `from` when they match.",
+      "_comment_parameters": "How the tool's arguments become the request. `name` is the wire name, `from` is the tool argument feeding it. Omit `from` when they match.",
       "parameters": {
         "path": [
           { "name": "TODO_id", "from": "TODO_field", "description": "Every {placeholder} in `path` needs an entry here." }
         ],
         "query": [
-          { "name": "page", "description": "Salla paginates with `page`. Expose it when the endpoint returns a list." },
-          { "name": "TODO_filter", "from": "TODO_field", "style": "single" }
+          { "name": "page", "description": "Salla-style upstreams paginate with `page`. Expose it whenever the endpoint returns a list." }
         ],
         "_comment_body": "For POST/PUT/PATCH. mode 'none' sends no body, 'passthrough' sends every argument not consumed by path or query, 'mapped' sends only the fields you list.",
         "body": { "mode": "none" }
       },
 
-      "_comment_response": "Salla wraps everything in {status, success, data}, and adds `pagination` on lists. This tells the engine what to unwrap.",
+      "_comment_response": "Salla-style envelopes wrap everything in {status, success, data}, plus a pagination object on lists. This tells the engine what to unwrap.",
       "response": {
         "dataPath": "data",
         "collection": false,
@@ -98,12 +99,12 @@
   },
 
   "validation": {
-    "_comment": "Optional. These regexes are compiled into the generated code as real guards, so a bad argument fails locally instead of costing a round trip and a Salla 422.",
+    "_comment": "Optional. These regexes are compiled into the generated code as real guards, so a bad argument fails locally instead of costing a round trip and an upstream 422.",
     "rules": [
       {
         "field": "TODO_field",
         "match": "^[0-9]+$",
-        "message": "TODO_field must be a numeric Salla id"
+        "message": "TODO_field must be a numeric id"
       }
     ]
   },
@@ -112,7 +113,7 @@
   "dependencies": [],
 
   "governance": {
-    "_comment": "HOW IT IS ALLOWED TO RUN. This layer is ours; MCP leaves it open. The schema cross-checks it against the Salla method, so these cannot quietly disagree with what the endpoint actually does.",
+    "_comment": "HOW IT IS ALLOWED TO RUN. This layer is ours; MCP leaves it open. The schema cross-checks it against the HTTP method, so these cannot quietly disagree with what the endpoint actually does.",
 
     "_comment_annotations": "GET must be readOnly true. POST/PUT/PATCH/DELETE must be readOnly false, and DELETE must additionally be destructive with humanApproval required.",
     "annotations": {

@@ -1,98 +1,239 @@
-# cm_mcp_contracts
+# MCP Tool Contracts — the Code-Mode Registry
 
-**The rulebook, the templates, the approved contracts, and the gate that guards them.**
+**Add an API capability to the agent platform by submitting one JSON file. No server code.**
 
-This repository turns **Salla Admin API endpoints** into agent-usable MCP tools — by contract, not
-by code. A contributor describes one endpoint in a JSON contract; the gate reviews it; on merge it
-is published to a registry that [`cm_mcp_engine`](../cm_mcp_engine) downloads, verifies it can
-execute, and serves as MCP tools acting on a merchant's store.
+This repository is the governed registry at the heart of the code-mode MCP platform. Every file in
+`contracts/` is a **tool contract**: a declarative description of exactly one upstream REST
+endpoint — what it is, where it calls, and how it is allowed to run. Once a contract passes the
+gate and merges, the platform does the rest: it is published to a registry,
+[`cm_mcp_engine`](https://github.com/jamalla/cm_mcp_engine) verifies it can execute it and turns it
+into a runnable, sandboxed, cached MCP tool, and the routing agent in
+[`cm_mcp_agent`](https://github.com/jamalla/cm_mcp_agent) starts offering it to users.
+
+The contract format is **modeled on the [Salla Admin API](https://docs.salla.dev/)'s nature** —
+enveloped `{status, success, data}` responses, scoped OAuth, standard pagination, Laravel-style
+query arrays — and Salla is the platform's primary upstream. The format does **not** tie you to
+Salla, though: `binding.http.api` selects which configured upstream the engine calls, and any
+API following the same conventions fits.
 
 ```
-schema/       tool-contract.v1.json   the one rulebook, Salla-native, owner-only
-templates/    copy-and-fill stubs     one per contract kind
-contracts/    the approved lane       submissions land here
-scripts/      the gate + the builder
+you                          this repo                        downstream
+────                         ─────────                        ──────────
+write contract  ──PR──>  contract-gate (3 checks)
+                         CODEOWNERS review
+                         merge == approval  ──publish──>  registry release
+                                                          cm_mcp_engine verifies + pins
+                                                          agent starts routing to your tool
 ```
 
-## What a contract declares
+## Repository layout
 
-Each contract wraps **one Salla endpoint** (or a package of related ones) in three layers:
+| Path | What it is | Who touches it |
+|---|---|---|
+| `schema/tool-contract.v1.json` | the one rulebook every contract must satisfy | owners only |
+| `templates/single-tool.template.json` | copy-and-fill starter | you copy it |
+| `contracts/` | the approved lane — submissions land here | contributors, via PR |
+| `scripts/` | the gate (structural + semantic) and the registry builder | owners only |
+| `tests/fixtures/invalid/` | deliberately broken contracts that must stay rejected | owners only |
 
-- **`interface`** — the MCP-facing surface: name, description, `whenToUse`/`whenNotToUse` routing
-  hints, the tool's input schema, and the **unwrapped** response shape. The tool's arguments are
-  deliberately *narrower* than Salla's — a list endpoint with twenty filters exposes the three an
-  agent should actually set.
-- **`binding.salla`** — the endpoint itself: Salla's `operationId`, method, path, `docsUrl` for
-  reviewer traceability, required OAuth **scopes**, how tool arguments map onto path/query/body,
-  and how to unwrap Salla's `{status, success, data}` envelope (plus `pagination` on lists).
-  There is **no base URL** — the engine owns it, so a contract cannot pin production.
-- **`governance`** — annotations, execution mode, caching policy. Cross-checked against the
-  binding by the schema itself.
+## Anatomy of a contract
 
-## Salla rules the schema enforces
+One endpoint, one tool, one file. Three layers:
 
-These are rejections, not warnings — each catches a contract that is well-formed and still wrong:
+```jsonc
+{
+  "$schema": "../schema/tool-contract.v1.json",
+  "contractVersion": "1.0.0",
+  "kind": "single-tool",
 
-| Rule | Why it matters |
+  "interface":  { /* WHAT: name, description, whenToUse/whenNotToUse,
+                     the tool's input schema, the unwrapped response shape */ },
+
+  "binding":    { /* WHERE: type "http" -> which upstream (api), method, path,
+                     required scopes, argument->request mapping, envelope unwrapping.
+                     Or type "none" -> a builtin:// pure function. */ },
+
+  "governance": { /* HOW: readOnly/destructive annotations, direct vs
+                     propose-apply execution, caching policy */ }
+}
+```
+
+- **`interface`** is the agent-facing surface. It maps 1:1 to the standard MCP tool shape, plus
+  the routing hints (`whenToUse` / `whenNotToUse`) an agent decides by.
+- **`binding`** is the call. There is deliberately **no base URL and no secret** in a contract:
+  the engine owns each upstream's host and resolves its credential at call time (for Salla, the
+  installing merchant's OAuth token). You declare only the *scopes* that credential must carry.
+- **`governance`** is the permission slip. The schema cross-checks it against the binding, so the
+  layers cannot quietly disagree.
+
+## Submit a tool — step by step
+
+1. **Pick the endpoint.** For Salla, its docs page ([docs.salla.dev](https://docs.salla.dev/))
+   gives you the method, path, scopes and `operationId` ready to copy — using them saves your
+   reviewer guesswork, and `docsUrl` + `operationId` are the cheapest traceability you can offer.
+2. **Copy the template**: `templates/single-tool.template.json` → `contracts/<tool_name>.json`.
+3. **Fill it in**, following the conventions below. The `$schema` key gives you editor
+   validation as you type, so most mistakes never reach CI.
+4. **Check it locally** (optional but fast):
+   ```bash
+   uv sync --extra dev
+   uv run python scripts/validate_contracts.py contracts/<tool_name>.json
+   uv run python scripts/eval_contracts.py contracts/<tool_name>.json
+   ```
+5. **Open a PR.** `contract-gate.yml` runs three jobs:
+   - **structural** — your contract against the schema, plus the cross-reference checks below,
+     plus a self-test that the known-bad fixtures are still rejected (the gate guarding itself);
+   - **semantic** — a quality review of routing hints, sibling confusion, careless input
+     surfaces (LLM-as-judge with an API key, deterministic heuristics without one — fork PRs get
+     a real signal either way);
+   - **buildable** — the registry artifact builds with your contract in it (catches duplicate
+     tool names before merge).
+6. **Address review.** Rejections name the field and explain the fix — see the sample below.
+7. **Merge = approval.** `publish-registry.yml` builds the registry, publishes an immutable
+   release plus the rolling `registry-latest`, and notifies the engine. The engine then verifies
+   it can *execute* your contract before pinning it — a contract can pass this repo's gate and
+   still be rejected there (an unsupported feature, an unknown `api` value), so watch its
+   consume-registry run if your tool never appears.
+
+## Conventions and rules
+
+Rules marked **enforced** fail the gate. The rest are conventions your reviewer will hold you to.
+
+### Naming and files
+
+- Tool names are `snake_case`, verb-first, and specific: `list_coupons`, `get_coupon`,
+  `create_coupon`, `update_coupon_status`. **Enforced:** pattern `^[a-z][a-z0-9_]*$`, max 64
+  chars, unique across the whole registry.
+- The file is named after the tool: `contracts/list_coupons.json`.
+- Tool arguments are `camelCase` (`couponId`); wire names stay whatever the upstream uses
+  (`coupon_id`), connected by the parameter mapping. Don't leak wire naming into the agent's
+  surface.
+
+### Versioning
+
+- `contractVersion` is semver for the contract itself, starting at `1.0.0`. **Enforced:**
+  `x.y.z` format.
+- Bump **patch** for hint/description edits, **minor** for added optional arguments, **major**
+  for anything that changes the call. Any bump retires the engine's cached generated code.
+
+### The interface (what the agent routes on)
+
+- `description`: one sentence saying what the tool *returns*. **Enforced:** ≥ 20 chars. The
+  semantic gate also rejects boilerplate and too-short-to-route descriptions.
+- `whenToUse`: ≥ 1 concrete situation a user would actually raise (**enforced**), each ≥ 10 chars.
+- `whenNotToUse`: name the sibling — *"The merchant named one coupon — use `get_coupon`
+  instead."* This line is what stops an agent picking a list endpoint when the user named a
+  record. The semantic gate rejects contracts without it.
+- Destructive tools must demand explicit intent in their hints — *"the merchant explicitly asks
+  to delete…"*. **Enforced** by the semantic gate for DELETEs and anything marked destructive.
+- `input.schema` exposes **only the arguments an agent should set**. An upstream list endpoint
+  with twenty filters becomes a tool with three. Narrowing is the contract doing its job; set
+  `additionalProperties: false`.
+- `response.schema` describes the **unwrapped payload** — what is inside the envelope's `data` —
+  never `{status, success, data}` itself. The optional `ui` block hints rendering, with
+  `{braces}` interpolating response fields.
+
+### The binding (where it calls)
+
+- `api` selects the configured upstream; it defaults to `"salla"`. A new value requires the
+  engine to be configured for that upstream first — coordinate before inventing one.
+- **Never a base URL, never a secret.** **Enforced:** the schema has no field for either.
+- `operationId`, `summary`, `docsUrl` are optional traceability; include them whenever the
+  upstream publishes them.
+- `path` keeps the upstream's placeholders verbatim: `/coupons/{coupon_id}`.
+- **Every `{placeholder}` needs a `parameters.path` entry, and every mapping must read a declared
+  argument** — **enforced** by cross-reference checks, in both directions.
+- **Every required argument must actually reach the request** (path, query, or body) —
+  **enforced**. Requiring an argument and dropping it is a promise the tool cannot keep.
+- Paginated endpoints expose a `page` argument, or the agent can only ever see page one —
+  **enforced** by the semantic gate.
+- Array query values default to Laravel bracket style (`status[]=a&status[]=b`) via
+  `style: "bracket"`; use `constant` to pin a filter the agent must not control.
+- `response.dataPath` is almost always `"data"`; `successStatuses` should match the upstream
+  (Salla: 201 on some creates, 202 on deletes). **Enforced:** `pagination: "standard"` implies
+  `collection: true`.
+
+### Auth and scopes
+
+- Scopes follow the `<domain>.read` / `<domain>.read_write` convention (**enforced** format),
+  adopted from Salla and applied platform-wide.
+- **Least privilege is enforced both ways:** a read-only tool may only hold `.read` scopes, and
+  a writing tool must hold a `.read_write` scope. Grants are made per app installation, so an
+  over-broad ask affects every store that installs the app.
+
+### Governance (all enforced)
+
+| Rule | Why |
 |---|---|
-| GET must be `readOnly: true` | otherwise it is never cached and the agent is told it has side effects |
-| POST/PUT/PATCH/DELETE cannot be read-only | a write marked read-only would be cached — a stale result served as though the write happened |
-| DELETE must be `destructive` + `humanApproval: required` | removing merchant data always gets a human in the loop |
-| a read-only tool may only ask for `.read` scopes | least privilege: Salla grants scopes per app install, so an over-broad ask affects every merchant |
-| a writing tool must hold a `.read_write` scope | Salla would 401 the call at runtime; reject it at review time |
-| only read-only tools may be cacheable, and cacheable requires `ttlSeconds` | a write is never cached; a cache with no TTL never expires |
-| `pagination: standard` implies `collection: true` | a paginated Salla response is an array by definition |
+| `GET` ⇒ `readOnly: true` | otherwise it is never cached and the agent is told it has side effects |
+| `POST/PUT/PATCH/DELETE` ⇒ `readOnly: false` | a write marked read-only would be cached — a stale result served as though the write happened |
+| `DELETE` ⇒ `destructive: true` + `humanApproval: "required"` | removing real data always gets a human in the loop |
+| destructive ⇒ never cacheable | caching a write is a correctness bug, not a preference |
+| cacheable ⇒ `readOnly: true` and `ttlSeconds` set | only reads may cache, and a cache with no TTL never expires |
 
-Beyond the schema, `validate_contracts.py` cross-references what JSON Schema cannot: every
-`{placeholder}` in the path has a mapping, every mapping reads a declared argument, every required
-argument actually reaches the request, and `keyBy`/validation rules name real arguments. Rejections
-come with plain-language hints:
+- `keyBy` lists the arguments that actually affect the result — **enforced** to name real
+  arguments. Typical TTLs: 60–600s for store data.
+- Non-DELETE writes may run `direct`, but anything a user would want to confirm belongs in
+  `propose-apply` (**enforced:** propose-apply always pairs with `humanApproval: "required"`).
+
+### Validation guards
+
+- `validation.rules` are regexes compiled into the generated code, so a malformed argument fails
+  locally instead of costing a round trip and an upstream 422. Each rule's `field` must be a
+  declared argument (**enforced**).
+
+## What a rejection looks like
+
+Rejections name the field, quote the rule, and say what to do:
 
 ```
-- binding/salla/auth/scopes/0: 'coupons.read_write' does not match '\.read$'
-    -> least privilege: a read-only tool must not request a read_write scope. Use the
-       .read scope, or set annotations.readOnly to false if it really writes
+REJECTED  contracts/list_coupons.json
+    - binding/http/auth/scopes/0: 'coupons.read_write' does not match '\.read$'
+        -> least privilege: a read-only tool must not request a read_write scope.
+           Use the .read scope, or set annotations.readOnly to false if it really writes
+    - path contains {coupon_id} but parameters.path has no entry for it,
+      so the request URL would keep the literal placeholder
 ```
-
-## Add a tool
-
-1. Open the endpoint on **docs.salla.dev**. Everything in the binding — operationId, method,
-   path, scopes — is copied from there, not invented.
-2. Copy a template from `templates/` into `contracts/` and fill it. The `$schema` key gives you
-   editor validation as you type.
-3. Open a PR. `contract-gate.yml` runs three jobs: **structural** (schema + cross-reference
-   checks, with the rejection fixtures re-verified so the gate guards itself), **semantic**
-   (LLM-as-judge on routing-hint quality, sibling confusion, careless input surfaces; deterministic
-   heuristics when no API key is present), and **buildable** (the registry actually builds).
-4. CODEOWNERS review, merge. **Merge is approval** — `publish-registry.yml` builds the artifact,
-   publishes immutable + rolling releases, and notifies the engine.
-
-## What this repo cannot check
-
-**Whether the engine can execute the contract.** That question belongs to
-[`cm_mcp_engine`](../cm_mcp_engine), which verifies every published registry before pinning it —
-including that it implements the `salla` binding features a contract uses. A contract can merge
-here and still be rejected downstream; check the engine's consume-registry run if a tool never
-appears.
-
-**Whether Salla's API actually behaves as documented.** Contracts are written from
-docs.salla.dev. The engine's integration against a real store is where reality is tested.
 
 ## Local commands
 
 ```bash
 uv sync --extra dev
-uv run pytest                                 # 59 tests
-uv run python scripts/validate_contracts.py   # structural + cross-reference
-uv run python scripts/eval_contracts.py       # semantic (heuristics without a key)
+uv run pytest                                 # 54 tests
+uv run python scripts/validate_contracts.py   # structural + cross-reference checks
+uv run python scripts/eval_contracts.py       # semantic review (heuristics without a key)
 uv run python scripts/build_registry.py       # -> dist/registry.generated.json
 pwsh scripts/demo_gate.ps1                    # watch bad contracts get rejected
 ```
 
-## Repo setup
+## Future work
 
-Secrets: `ANTHROPIC_API_KEY` (optional, upgrades the semantic gate), `ENGINE_DISPATCH_TOKEN`
-(fine-grained PAT with *Contents: read and write* on `cm_mcp_engine`; without it the engine falls
-back to its daily scheduled pull). Replace `@owner`/`@reviewers` in [CODEOWNERS](CODEOWNERS), and
-protect `main` requiring `structural`, `semantic`, `buildable` plus a CODEOWNERS review on
-`contracts/**`.
+Two contract kinds existed in an earlier draft of the schema and were removed to keep v1 minimal
+— one endpoint, one tool, one file, one review. They remain on the roadmap; `kind` stays in the
+format so they can return without breaking existing contracts:
+
+- **`multi-tool` packages** — several endpoints from one domain (all the Coupons endpoints,
+  say) shipped and reviewed as a unit, expanded into individual tools at registry load. Worth it
+  once domains grow past a handful of files with a shared owner and lifecycle.
+- **`openapi-import`** — name the operationIds you want from an upstream's OpenAPI spec and let
+  a converter emit full single-tool contracts, which then flow through this same gate. The
+  accelerator for onboarding a large surface without hand-writing every contract.
+
+Also ahead: engine support for the `http` binding described here (envelope unwrapping, parameter
+mapping, per-merchant token resolution) — tracked in `cm_mcp_engine`.
+
+## What this repository cannot check
+
+- **Whether the engine can execute your contract.** Only the engine knows which binding features
+  and upstreams it implements; its consume-registry workflow verifies every published registry
+  before pinning it.
+- **Whether the upstream actually behaves as documented.** Contracts are written from docs; the
+  engine's integration against a real store is where reality is tested.
+
+## Maintainer setup
+
+Secrets: `ANTHROPIC_API_KEY` (optional — upgrades the semantic gate from heuristics to
+LLM-as-judge), `ENGINE_DISPATCH_TOKEN` (fine-grained PAT, *Contents: read and write* on
+`cm_mcp_engine`; without it the engine falls back to its daily scheduled pull). Replace
+`@owner`/`@reviewers` in [CODEOWNERS](CODEOWNERS) with real handles, and protect `main` requiring
+the `structural`, `semantic`, and `buildable` checks plus a CODEOWNERS review on `contracts/**`.

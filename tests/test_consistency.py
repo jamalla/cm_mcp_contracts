@@ -31,14 +31,14 @@ def test_valid_contracts_are_consistent():
 def test_unmapped_path_placeholder_is_caught():
     """Otherwise the engine requests /coupons/{coupon_id} literally."""
     contract = copy.deepcopy(DELETE_CONTRACT)
-    contract["binding"]["salla"]["parameters"] = {}
+    contract["binding"]["http"]["parameters"] = {}
     problems = consistency_problems(contract)
     assert any("{coupon_id}" in p and "no entry" in p for p in problems), problems
 
 
 def test_mapping_a_placeholder_the_path_lacks_is_caught():
     contract = copy.deepcopy(DELETE_CONTRACT)
-    contract["binding"]["salla"]["parameters"]["path"].append(
+    contract["binding"]["http"]["parameters"]["path"].append(
         {"name": "store_id", "from": "couponId"}
     )
     problems = consistency_problems(contract)
@@ -48,7 +48,7 @@ def test_mapping_a_placeholder_the_path_lacks_is_caught():
 def test_mapping_reading_an_undeclared_argument_is_caught():
     """The bug this whole module exists for: a filter wired to nothing."""
     contract = copy.deepcopy(READ_CONTRACT)
-    contract["binding"]["salla"]["parameters"]["query"] = [
+    contract["binding"]["http"]["parameters"]["query"] = [
         {"name": "status", "from": "couponStatus"}
     ]
     problems = consistency_problems(contract)
@@ -67,9 +67,9 @@ def test_a_required_argument_that_is_never_sent_is_caught():
 def test_passthrough_body_consumes_the_remaining_arguments():
     """A passthrough body sends whatever the path and query did not, so nothing is orphaned."""
     contract = copy.deepcopy(DELETE_CONTRACT)
-    contract["binding"]["salla"]["method"] = "POST"
-    contract["binding"]["salla"]["path"] = "/coupons"
-    contract["binding"]["salla"]["parameters"] = {"body": {"mode": "passthrough"}}
+    contract["binding"]["http"]["method"] = "POST"
+    contract["binding"]["http"]["path"] = "/coupons"
+    contract["binding"]["http"]["parameters"] = {"body": {"mode": "passthrough"}}
     contract["interface"]["input"]["schema"]["properties"]["code"] = {"type": "string"}
     contract["interface"]["input"]["schema"]["required"] = ["couponId", "code"]
     assert consistency_problems(contract) == []
@@ -77,9 +77,9 @@ def test_passthrough_body_consumes_the_remaining_arguments():
 
 def test_mapped_body_field_reading_an_undeclared_argument_is_caught():
     contract = copy.deepcopy(DELETE_CONTRACT)
-    contract["binding"]["salla"]["method"] = "POST"
-    contract["binding"]["salla"]["path"] = "/coupons"
-    contract["binding"]["salla"]["parameters"] = {
+    contract["binding"]["http"]["method"] = "POST"
+    contract["binding"]["http"]["path"] = "/coupons"
+    contract["binding"]["http"]["parameters"] = {
         "body": {"mode": "mapped", "fields": [{"name": "code", "from": "couponCode"}]}
     }
     problems = consistency_problems(contract)
@@ -106,28 +106,10 @@ def test_validation_rule_guarding_a_missing_argument_is_caught():
 def test_a_constant_query_parameter_needs_no_argument():
     """A pinned filter is deliberately not agent-controlled, so it orphans nothing."""
     contract = copy.deepcopy(READ_CONTRACT)
-    contract["binding"]["salla"]["parameters"]["query"].append(
+    contract["binding"]["http"]["parameters"]["query"].append(
         {"name": "per_page", "constant": 50}
     )
     assert consistency_problems(contract) == []
-
-
-def test_every_tool_in_a_package_is_checked():
-    """A multi-tool package hides a broken entry behind valid siblings."""
-    broken = copy.deepcopy(READ_CONTRACT)
-    broken["binding"]["salla"]["parameters"]["query"] = [{"name": "status", "from": "ghost"}]
-
-    package = {
-        "contractVersion": "1.0.0",
-        "kind": "multi-tool",
-        "package": {"name": "coupons", "description": "Coupon tools for the store."},
-        "tools": [
-            {k: READ_CONTRACT[k] for k in ("interface", "binding", "governance")},
-            {k: broken[k] for k in ("interface", "binding", "governance")},
-        ],
-    }
-    problems = consistency_problems(package)
-    assert any(p.startswith("tools/1: ") and "ghost" in p for p in problems), problems
 
 
 def test_builtin_bindings_are_skipped():

@@ -54,7 +54,8 @@ VERDICT_SCHEMA = {
 }
 
 JUDGE_SYSTEM = """You review tool contracts submitted to a registry that turns
-Salla Admin API endpoints into MCP tools for merchant-facing agents.
+upstream REST endpoints -- primarily the Salla Admin API -- into MCP tools for
+merchant-facing agents.
 
 An agent picks tools using only the contract's `description`, `whenToUse`, and
 `whenNotToUse`. A contract that is structurally valid but semantically vague makes
@@ -70,9 +71,8 @@ Fail a contract when any of these hold:
   read vs write) or fails to name the sibling.
 - The tool duplicates an existing registry entry without a clear distinction.
 - The binding does not match what the interface claims: a path or operationId
-  that plainly belongs to a different Salla endpoint than the description
-  promises, or a response schema describing fields Salla's endpoint does not
-  return.
+  that plainly belongs to a different endpoint than the description promises,
+  or a response schema describing fields the upstream does not return.
 - The input surface is careless: arguments exposed that an agent should never
   control (per_page in the thousands, raw status ids with no guard), or a
   destructive tool whose hints would let it trigger on vague vocabulary.
@@ -105,13 +105,6 @@ def discover(paths: list[str] | None, directory: str | None) -> list[Path]:
     return sorted(root.rglob("*.json"))
 
 
-def iter_tools(contract: dict) -> list[dict]:
-    """A multi-tool package is judged one tool at a time, like the registry loads it."""
-    if contract.get("kind") == "multi-tool":
-        return contract.get("tools", [])
-    return [contract]
-
-
 def registry_names(exclude: Path) -> set[str]:
     """Tool names already approved, so the judge can spot duplicates."""
     names: set[str] = set()
@@ -122,10 +115,9 @@ def registry_names(exclude: Path) -> set[str]:
             contract = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             continue
-        for tool in iter_tools(contract):
-            name = tool.get("interface", {}).get("name")
-            if name:
-                names.add(name)
+        name = contract.get("interface", {}).get("name")
+        if name:
+            names.add(name)
     return names
 
 
@@ -138,74 +130,68 @@ def judge_heuristically(path: Path, contract: dict) -> Verdict:
     reasons: list[str] = []
     existing = registry_names(exclude=path)
 
-    for tool in iter_tools(contract):
-        interface = tool.get("interface", {})
-        name = interface.get("name", "(unnamed)")
-        description = (interface.get("description") or "").strip()
-        governance = tool.get("governance", {})
-        annotations = governance.get("annotations", {})
-        caching = governance.get("caching", {})
-        binding = tool.get("binding", {})
+    interface = contract.get("interface", {})
+    name = interface.get("name", "(unnamed)")
+    description = (interface.get("description") or "").strip()
+    governance = contract.get("governance", {})
+    annotations = governance.get("annotations", {})
+    caching = governance.get("caching", {})
+    binding = contract.get("binding", {})
 
-        lowered = description.lower()
-        if any(marker in lowered for marker in BOILERPLATE):
-            reasons.append(f"{name}: description still contains template boilerplate.")
-        if len(description.split()) < 6:
-            reasons.append(f"{name}: description is too short to route on.")
+    lowered = description.lower()
+    if any(marker in lowered for marker in BOILERPLATE):
+        reasons.append(f"{name}: description still contains template boilerplate.")
+    if len(description.split()) < 6:
+        reasons.append(f"{name}: description is too short to route on.")
 
-        when_to_use = interface.get("whenToUse") or []
-        if not when_to_use:
-            reasons.append(f"{name}: no whenToUse hints, so the agent cannot route to it.")
-        for hint in when_to_use:
-            if hint.strip().lower() == lowered:
-                reasons.append(f"{name}: whenToUse just restates the description.")
-        if not interface.get("whenNotToUse"):
-            reasons.append(
-                f"{name}: no whenNotToUse hints -- say when the agent should pick something else."
-            )
+    when_to_use = interface.get("whenToUse") or []
+    if not when_to_use:
+        reasons.append(f"{name}: no whenToUse hints, so the agent cannot route to it.")
+    for hint in when_to_use:
+        if hint.strip().lower() == lowered:
+            reasons.append(f"{name}: whenToUse just restates the description.")
+    if not interface.get("whenNotToUse"):
+        reasons.append(
+            f"{name}: no whenNotToUse hints -- say when the agent should pick something else."
+        )
 
-        if name in existing:
-            reasons.append(f"{name}: a tool with this name is already in the registry.")
+    if name in existing:
+        reasons.append(f"{name}: a tool with this name is already in the registry.")
 
-        # Quality questions the structural gate cannot ask. Hard contradictions
-        # (method vs readOnly, destructive vs cacheable) are the schema's job now;
-        # what belongs here is judgment about whether the contract is GOOD.
-        salla = binding.get("salla") or {}
+    # Quality questions the structural gate cannot ask. Hard contradictions
+    # (method vs readOnly, destructive vs cacheable) are the schema's job;
+    # what belongs here is judgment about whether the contract is GOOD.
+    http = binding.get("http") or {}
 
-        if salla:
-            # Salla paginates lists with `page`; a collection endpoint that hides it
-            # gives the agent only the first 15 rows with no way to ask for more.
-            response = salla.get("response") or {}
-            if response.get("pagination") == "standard":
-                query_names = {
-                    q.get("name") for q in (salla.get("parameters") or {}).get("query") or []
-                }
-                if "page" not in query_names:
-                    reasons.append(
-                        f"{name}: the response is paginated but the tool does not expose a "
-                        f"`page` query parameter, so the agent can only ever see page one."
-                    )
-
-            # Traceability: a reviewer should not have to guess which endpoint this is.
-            if not salla.get("docsUrl"):
+    if http:
+        # Salla-style upstreams paginate lists with `page`; a collection endpoint
+        # that hides it gives the agent only the first page with no way to ask
+        # for more.
+        response = http.get("response") or {}
+        if response.get("pagination") == "standard":
+            query_names = {
+                q.get("name") for q in (http.get("parameters") or {}).get("query") or []
+            }
+            if "page" not in query_names:
                 reasons.append(
-                    f"{name}: no docsUrl -- link the endpoint on docs.salla.dev so a "
-                    f"reviewer can check this contract against the source."
+                    f"{name}: the response is paginated but the tool does not expose a "
+                    f"`page` query parameter, so the agent can only ever see page one."
                 )
 
-            # A destructive write whose whenToUse does not demand explicit intent
-            # invites the router to pick it on vague vocabulary overlap.
-            if annotations.get("destructive"):
-                intent_words = ("explicit", "asks to", "confirms", "requested")
-                hints_text = " ".join(when_to_use).lower()
-                if not any(word in hints_text for word in intent_words):
-                    reasons.append(
-                        f"{name}: destructive, but no whenToUse hint requires the merchant "
-                        f"to have explicitly asked. Say 'the merchant explicitly asks to ...'"
-                    )
+        # A tool that removes or rewrites data, whose whenToUse does not demand
+        # explicit intent, invites the router to pick it on vague vocabulary
+        # overlap with its read-only siblings.
+        if annotations.get("destructive") or http.get("method") == "DELETE":
+            intent_words = ("explicit", "asks to", "confirms", "requested")
+            hints_text = " ".join(when_to_use).lower()
+            if not any(word in hints_text for word in intent_words):
+                reasons.append(
+                    f"{name}: destructive, but no whenToUse hint requires the merchant "
+                    f"to have explicitly asked. Say 'the merchant explicitly asks to ...'"
+                )
 
-        if caching.get("cacheable") and not caching.get("ttlSeconds"):
-            reasons.append(f"{name}: cacheable but no ttlSeconds, so entries never expire.")
+    if caching.get("cacheable") and not caching.get("ttlSeconds"):
+        reasons.append(f"{name}: cacheable but no ttlSeconds, so entries never expire.")
 
     return Verdict(
         path=path,

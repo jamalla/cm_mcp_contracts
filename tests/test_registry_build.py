@@ -34,40 +34,24 @@ def test_registry_carries_the_provenance_the_engine_pins(tmp_path):
     assert payload["toolCount"] == len(payload["toolNames"])
 
 
-def test_multi_tool_packages_are_expanded_in_the_name_list(tmp_path):
-    """A consumer deciding whether it can serve this registry needs every tool
-    name, including the ones bundled inside a package.
+def test_tool_names_are_read_from_the_interface(tmp_path):
+    """toolNames is what the engine checks before pinning a registry.
 
-    Built from a contract this test writes rather than whichever seeds happen to
-    be approved, so it keeps testing expansion as the registry's contents change.
+    Built from a contract this test writes rather than whichever seeds happen
+    to be approved, so it keeps working as the lane's contents change.
     """
-    from tests.test_salla_rules import DELETE_CONTRACT, READ_CONTRACT
+    from tests.test_salla_rules import READ_CONTRACT
 
-    package = {
-        "$schema": "../schema/tool-contract.v1.json",
-        "contractVersion": "1.0.0",
-        "kind": "multi-tool",
-        "package": {
-            "name": "temp_multi_for_test",
-            "description": "Temporary package used to prove multi-tool expansion.",
-        },
-        "tools": [
-            {k: v for k, v in READ_CONTRACT.items() if k in {"interface", "binding", "governance"}},
-            {k: v for k, v in DELETE_CONTRACT.items() if k in {"interface", "binding", "governance"}},
-        ],
-    }
-
-    path = REPO_ROOT / "contracts" / "_tmp_multi_for_test.json"
+    path = REPO_ROOT / "contracts" / "_tmp_single_for_test.json"
     path.parent.mkdir(exist_ok=True)
-    path.write_text(json.dumps(package), encoding="utf-8")
+    path.write_text(json.dumps(READ_CONTRACT), encoding="utf-8")
     try:
         payload = build(tmp_path)
     finally:
         path.unlink()
 
     assert "list_coupons" in payload["toolNames"]
-    assert "delete_coupon" in payload["toolNames"]
-    assert "temp_multi_for_test" not in payload["toolNames"], "the package is not itself a tool"
+    assert payload["toolCount"] == len(payload["toolNames"])
 
 
 def test_build_refuses_an_invalid_contract(tmp_path):
