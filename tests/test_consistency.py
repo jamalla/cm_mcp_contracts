@@ -133,7 +133,7 @@ def test_builtin_bindings_are_skipped():
 def test_a_dependency_naming_a_real_contract_resolves():
     contract = copy.deepcopy(READ_CONTRACT)
     contract["dependencies"] = [{"contract": "delete_coupon", "reason": "ids come from there"}]
-    assert dependency_problems(contract, {"list_coupons", "delete_coupon"}) == []
+    assert dependency_problems(contract, {"list_fixture_coupons", "delete_coupon"}) == []
 
 
 def test_a_dependency_naming_a_missing_contract_is_caught():
@@ -142,14 +142,16 @@ def test_a_dependency_naming_a_missing_contract_is_caught():
     contract["dependencies"] = [
         {"contract": "list_coupon_statuses", "reason": "the status filter takes real slugs"}
     ]
-    problems = dependency_problems(contract, {"list_coupons"})
+    problems = dependency_problems(contract, {"list_fixture_coupons"})
     assert any("list_coupon_statuses" in p and "not a contract" in p for p in problems), problems
 
 
 def test_a_contract_cannot_depend_on_itself():
     contract = copy.deepcopy(READ_CONTRACT)
-    contract["dependencies"] = [{"contract": "list_coupons", "reason": "circular by mistake"}]
-    problems = dependency_problems(contract, {"list_coupons"})
+    contract["dependencies"] = [
+        {"contract": "list_fixture_coupons", "reason": "circular by mistake"}
+    ]
+    problems = dependency_problems(contract, {"list_fixture_coupons"})
     assert any("itself" in p for p in problems), problems
 
 
