@@ -21,6 +21,7 @@ from scripts.validate_contracts import (  # noqa: E402
     approved_contracts,
     consistency_problems,
     dependency_problems,
+    resolver_problems,
     tool_names,
 )
 from tests.test_salla_rules import DELETE_CONTRACT, READ_CONTRACT  # noqa: E402
@@ -164,3 +165,102 @@ def test_every_approved_contract_resolves_its_dependencies():
     known = tool_names(lane)
     for contract in lane:
         assert dependency_problems(contract, known) == [], contract["interface"]["name"]
+
+
+# -- value resolvers -------------------------------------------------------
+#
+# A resolver copies the lookup's endpoint into the calling contract, because the
+# generated module runs in a sandbox with no registry to consult. The copy is
+# only safe while something compares it to the original -- that is what these
+# are. The rest are about blast radius: a resolver is an extra call made on the
+# caller's credential, before the call anyone asked for.
+
+LOOKUP = {
+    "interface": {
+        "name": "list_order_statuses",
+        "annotations": {"readOnlyHint": True, "destructiveHint": False},
+    },
+    "binding": {
+        "type": "http",
+        "http": {
+            "method": "GET",
+            "path": "/orders/statuses",
+            "auth": {"scopes": ["orders.read"]},
+            "response": {"dataPath": "data"},
+        },
+    },
+}
+
+
+def _with_resolver(**overrides):
+    contract = copy.deepcopy(READ_CONTRACT)
+    contract["binding"]["http"]["auth"]["scopes"] = ["orders.read"]
+    contract["binding"]["http"]["parameters"]["query"] = [
+        {
+            "name": "status",
+            "resolve": {
+                "contract": "list_order_statuses",
+                "path": "/orders/statuses",
+                "dataPath": "data",
+                "matchOn": ["slug"],
+                "sendField": "id",
+                **overrides,
+            },
+        }
+    ]
+    contract["dependencies"] = [
+        {"contract": "list_order_statuses", "reason": "the status filter resolves through it"}
+    ]
+    return contract
+
+
+LANE = {"list_order_statuses": LOOKUP}
+
+
+def test_a_well_formed_resolver_passes():
+    assert resolver_problems(_with_resolver(), LANE) == []
+
+
+def test_a_resolver_must_also_be_declared_as_a_dependency():
+    """Otherwise the edge is invisible to every other check, including the gate's."""
+    contract = _with_resolver()
+    contract["dependencies"] = []
+    problems = resolver_problems(contract, LANE)
+    assert any("dependencies" in p for p in problems), problems
+
+
+def test_a_resolver_path_that_drifted_from_its_contract_is_caught():
+    """The whole reason the copy is allowed is that this runs."""
+    problems = resolver_problems(_with_resolver(path="/orders/states"), LANE)
+    assert any("drifted" in p for p in problems), problems
+
+
+def test_a_resolver_data_path_that_disagrees_is_caught():
+    problems = resolver_problems(_with_resolver(dataPath="items"), LANE)
+    assert any("unwraps" in p for p in problems), problems
+
+
+def test_a_resolver_may_not_name_a_tool_that_writes():
+    """It runs before the call the caller asked for. It cannot have side effects."""
+    lane = copy.deepcopy(LANE)
+    lane["list_order_statuses"]["interface"]["annotations"]["readOnlyHint"] = False
+    problems = resolver_problems(_with_resolver(), lane)
+    assert any("read-only" in p for p in problems), problems
+
+
+def test_a_resolver_may_not_widen_the_scopes_the_tool_asked_for():
+    """Least privilege: the extra call rides on the same credential."""
+    lane = copy.deepcopy(LANE)
+    lane["list_order_statuses"]["binding"]["http"]["auth"]["scopes"] = ["customers.read"]
+    problems = resolver_problems(_with_resolver(), lane)
+    assert any("customers.read" in p for p in problems), problems
+
+
+def test_a_contract_with_no_resolver_is_silent():
+    assert resolver_problems(READ_CONTRACT, LANE) == []
+
+
+def test_the_approved_lane_satisfies_its_own_resolvers():
+    lane = {c["interface"]["name"]: c for c in approved_contracts()}
+    for contract in lane.values():
+        assert resolver_problems(contract, lane) == [], contract["interface"]["name"]
