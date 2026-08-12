@@ -30,7 +30,7 @@ READ_CONTRACT = {
     "contractVersion": "1.0.0",
     "kind": "single-tool",
     "interface": {
-        "name": "list_coupons",
+        "name": "list_fixture_coupons",
         "title": "List Coupons",
         "description": "Lists the discount coupons configured in the store.",
         "whenToUse": ["The merchant asks which coupons exist or are active."],

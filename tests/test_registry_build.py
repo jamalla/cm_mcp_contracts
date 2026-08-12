@@ -124,8 +124,8 @@ def test_tool_names_are_read_from_the_interface(tmp_path):
     finally:
         path.unlink()
 
-    assert "list_coupons" in index["toolNames"]
-    assert (out / "contracts" / "list_coupons.json").is_file()
+    assert "list_fixture_coupons" in index["toolNames"]
+    assert (out / "contracts" / "list_fixture_coupons.json").is_file()
 
 
 def test_build_refuses_an_invalid_contract(tmp_path):
@@ -194,7 +194,7 @@ def test_a_deleted_contract_disappears_from_a_rebuild(tmp_path):
             cwd=REPO_ROOT, capture_output=True, text=True,
         )
         assert build_result.returncode == 0, build_result.stdout
-        assert (out / "contracts" / "list_coupons.json").is_file()
+        assert (out / "contracts" / "list_fixture_coupons.json").is_file()
     finally:
         extra.unlink()
 
@@ -203,4 +203,4 @@ def test_a_deleted_contract_disappears_from_a_rebuild(tmp_path):
         [sys.executable, "scripts/build_registry.py", "--out", str(out)],
         cwd=REPO_ROOT, capture_output=True, text=True, check=True,
     )
-    assert not (out / "contracts" / "list_coupons.json").exists()
+    assert not (out / "contracts" / "list_fixture_coupons.json").exists()
