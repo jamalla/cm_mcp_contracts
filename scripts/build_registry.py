@@ -43,9 +43,9 @@ from jsonschema import Draft202012Validator
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.validate_contracts import dependency_problems  # noqa: E402
+from scripts.validate_contracts import dependency_problems, resolver_problems  # noqa: E402
 
-SCHEMA_PATH = REPO_ROOT / "schema" / "tool-contract.v1.json"
+SCHEMA_PATH = REPO_ROOT / "schema" / "tool-contract.v2.json"
 CONTRACTS_DIR = REPO_ROOT / "contracts"
 DEFAULT_OUT = REPO_ROOT / "dist" / "registry"
 
@@ -135,6 +135,7 @@ def main() -> int:
     known = set(names)
     for name, contract in accepted.items():
         failures.extend(f"{name}.json: {problem}" for problem in dependency_problems(contract, known))
+        failures.extend(f"{name}.json: {problem}" for problem in resolver_problems(contract, accepted))
 
     if failures:
         print("Refusing to publish a registry with invalid contracts:\n")

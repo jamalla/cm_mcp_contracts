@@ -10,7 +10,7 @@ from jsonschema import Draft202012Validator
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-SCHEMA_PATH = REPO_ROOT / "schema" / "tool-contract.v1.json"
+SCHEMA_PATH = REPO_ROOT / "schema" / "tool-contract.v2.json"
 CONTRACTS_DIR = REPO_ROOT / "contracts"
 TEMPLATES_DIR = REPO_ROOT / "templates"
 FIXTURES_INVALID = Path(__file__).parent / "fixtures" / "invalid"
@@ -40,7 +40,7 @@ def test_approved_contracts_validate(path, validator):
 def test_approved_contracts_reference_the_schema(path):
     """The $schema key is what gives contributors editor validation before CI."""
     contract = json.loads(path.read_text(encoding="utf-8"))
-    assert contract.get("$schema") == "../schema/tool-contract.v1.json"
+    assert contract.get("$schema") == "../schema/tool-contract.v2.json"
 
 
 def test_tool_names_are_unique_across_the_registry():
@@ -85,7 +85,7 @@ def test_rejections_name_the_offending_field(path, validator):
 @pytest.mark.parametrize("path", TEMPLATES, ids=lambda p: p.name)
 def test_templates_point_at_the_schema(path):
     template = json.loads(path.read_text(encoding="utf-8"))
-    assert template["$schema"] == "../schema/tool-contract.v1.json"
+    assert template["$schema"] == "../schema/tool-contract.v2.json"
 
 
 # What a contributor types over the placeholders. Order matters: read_write must

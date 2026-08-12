@@ -26,7 +26,10 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_PATH = REPO_ROOT / "schema" / "tool-contract.v1.json"
+# The current rulebook. v1 is retired rather than kept alongside: an engine that
+# served both would have to decide which features it may ignore per file, and the
+# whole point of the bump is that ignoring `resolve` is not survivable.
+SCHEMA_PATH = REPO_ROOT / "schema" / "tool-contract.v2.json"
 CONTRACTS_DIR = REPO_ROOT / "contracts"
 
 
@@ -340,6 +343,87 @@ def dependency_problems(contract: dict, known: set[str]) -> list[str]:
     return problems
 
 
+def _query_resolvers(contract: dict) -> list[dict]:
+    binding = contract.get("binding") or {}
+    if binding.get("type") != "http":
+        return []
+    parameters = (binding.get("http") or {}).get("parameters") or {}
+    return [
+        {"parameter": spec.get("name"), **spec["resolve"]}
+        for spec in parameters.get("query") or []
+        if isinstance(spec.get("resolve"), dict)
+    ]
+
+
+def resolver_problems(contract: dict, lane: dict[str, dict]) -> list[str]:
+    """Hold a value resolver to the contract it names.
+
+    A resolver writes out the lookup's endpoint so the generated module stays
+    self-contained -- it runs in a sandbox with no registry to consult. That
+    duplication is only safe while something compares the copy to the original,
+    which is this. The alternative was threading a registry handle through code
+    generation; checking it at review time is cheaper and catches the drift
+    earlier.
+
+    The other three rules are about blast radius. A resolver is an extra call
+    made on the caller's credential, before the call anyone asked for, so it may
+    not write, and it may not reach anywhere the tool itself could not already
+    reach.
+    """
+    problems: list[str] = []
+
+    for resolver in _query_resolvers(contract):
+        parameter = resolver.get("parameter")
+        target_name = resolver.get("contract")
+        where = f"parameters.query {parameter!r} resolve"
+
+        declared = {
+            d.get("contract") for d in contract.get("dependencies") or [] if d.get("contract")
+        }
+        if target_name not in declared:
+            problems.append(
+                f"{where} names {target_name!r}, which is not in this contract's "
+                f"dependencies -- a resolver is a dependency, so declare it as one"
+            )
+
+        target = lane.get(target_name)
+        if target is None:
+            # dependency_problems already reports an unknown contract; do not
+            # pile a second, vaguer message on top of it.
+            continue
+
+        target_http = (target.get("binding") or {}).get("http") or {}
+        if (actual := target_http.get("path")) != resolver.get("path"):
+            problems.append(
+                f"{where} calls {resolver.get('path')!r}, but {target_name} is bound to "
+                f"{actual!r} -- the copy has drifted from the contract it names"
+            )
+
+        target_data_path = (target_http.get("response") or {}).get("dataPath")
+        if target_data_path != resolver.get("dataPath"):
+            problems.append(
+                f"{where} unwraps {resolver.get('dataPath')!r}, but {target_name} declares "
+                f"{target_data_path!r}"
+            )
+
+        target_annotations = (target.get("interface") or {}).get("annotations") or {}
+        if not target_annotations.get("readOnlyHint"):
+            problems.append(
+                f"{where} names {target_name!r}, which is not read-only -- a resolver runs "
+                f"before the call the caller asked for, so it must never change anything"
+            )
+
+        own_scopes = set((contract.get("binding") or {}).get("http", {}).get("auth", {}).get("scopes") or [])
+        target_scopes = set(target_http.get("auth", {}).get("scopes") or [])
+        if extra := target_scopes - own_scopes:
+            problems.append(
+                f"{where} needs {', '.join(sorted(extra))}, which this contract does not "
+                f"declare -- a resolver cannot reach further into a store than its tool"
+            )
+
+    return problems
+
+
 def validate_file(path: Path, validator: Draft202012Validator) -> list[str]:
     try:
         contract = json.loads(path.read_text(encoding="utf-8"))
@@ -397,9 +481,15 @@ def main() -> int:
             for path, problems in report.items()
             if not problems
         }
-        known = tool_names(parsed.values()) | tool_names(approved_contracts())
+        lane = {
+            name: contract
+            for contract in [*approved_contracts(), *parsed.values()]
+            if (name := (contract.get("interface") or {}).get("name"))
+        }
+        known = set(lane)
         for path, contract in parsed.items():
             report[path].extend(dependency_problems(contract, known))
+            report[path].extend(resolver_problems(contract, lane))
 
     failures = 0
     for path in files:

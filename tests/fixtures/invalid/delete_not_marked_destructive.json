@@ -1,5 +1,5 @@
 {
-  "$schema": "../../../schema/tool-contract.v1.json",
+  "$schema": "../../../schema/tool-contract.v2.json",
   "_comment": "REJECTION FIXTURE: a DELETE declared non-destructive, cacheable, running without approval, and whose whenToUse never demands the merchant explicitly asked. The structural gate rejects the governance contradictions; the semantic gate rejects the weak intent hints. Together they would let an agent cache the removal of a coupon it was never clearly asked to remove.",
   "contractVersion": "1.0.0",
   "kind": "single-tool",
