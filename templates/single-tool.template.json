@@ -1,5 +1,5 @@
 {
-  "$schema": "../schema/tool-contract.v1.json",
+  "$schema": "../schema/tool-contract.v2.json",
   "_comment": "STARTER FILE for one upstream REST endpoint. Copy me into contracts/<tool_name>.json, fill every TODO, delete the _comment keys if you like (the schema allows them either way), and open a PR. Your editor validates against the schema as you type, so most mistakes surface before CI.",
   "_comment_upstream": "The platform's primary upstream is the Salla Admin API; for Salla endpoints, docs.salla.dev is the reference for method, path and scopes, and copying from it saves your reviewer a lot of back-and-forth. The format itself is not Salla-only -- any upstream the engine is configured for works, selected by binding.http.api.",
 

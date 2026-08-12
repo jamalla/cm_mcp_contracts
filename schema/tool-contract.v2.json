@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://contract-mcp.example/schemas/tool-contract.v1.json",
-  "title": "Tool Contract v1",
-  "description": "The rulebook. A contract turns exactly ONE upstream REST endpoint into an MCP tool, without anyone writing server code. The shape is modeled on the Salla Admin API -- enveloped responses, scoped OAuth, standard pagination -- and Salla is the platform's primary upstream, but the format itself does not tie a contributor to it. One endpoint, one tool, one file.",
+  "$id": "https://contract-mcp.example/schemas/tool-contract.v2.json",
+  "title": "Tool Contract v2",
+  "description": "The rulebook. A contract turns exactly ONE upstream REST endpoint into an MCP tool, without anyone writing server code. The shape is modeled on the Salla Admin API -- enveloped responses, scoped OAuth, standard pagination -- and Salla is the platform's primary upstream, but the format itself does not tie a contributor to it. One endpoint, one tool, one file.\n\nv2 adds `resolve` to a query parameter: a value the AGENT states in stable, human vocabulary that the UPSTREAM wants as something else -- an id that differs per store. The generated code performs the lookup and the substitution, so the translation lives with the binding it belongs to and the agent never learns it. Breaking, deliberately: an engine that does not implement `resolve` would ignore it and send the slug the upstream cannot use, and Salla answers a bad filter by returning everything rather than by failing. The schema id is what lets an engine refuse a registry it cannot serve correctly instead of serving it wrongly.",
 
   "type": "object",
   "required": ["contractVersion", "kind", "interface", "binding", "governance"],
@@ -333,7 +333,8 @@
         "constant": {
           "description": "A fixed value always sent, instead of reading a tool argument. Use it to pin a filter the agent must not control.",
           "type": ["string", "number", "boolean"]
-        }
+        },
+        "resolve": { "$ref": "#/$defs/valueResolver" }
       },
       "patternProperties": { "^_comment": true },
       "additionalProperties": false,
@@ -342,8 +343,57 @@
           "$comment": "A constant is not read from an argument, so pairing it with `from` is contradictory.",
           "if": { "required": ["constant"] },
           "then": { "not": { "required": ["from"] } }
+        },
+        {
+          "$comment": "A constant is fixed at authoring time; there is nothing to resolve.",
+          "if": { "required": ["constant"] },
+          "then": { "not": { "required": ["resolve"] } }
         }
       ]
+    },
+
+    "valueResolver": {
+      "type": "object",
+      "description": "Translate what the agent says into what the upstream takes.\n\nSome filters are keyed on values that only exist inside one merchant's store. Salla's order status filter is: a store's id for `shipped` is 1201821018 here and a different number next door, so no agent can know it and no contract can hardcode it. Exposing that id as the tool's argument pushes an upstream implementation detail all the way into the model's vocabulary, and gets the wrong answer whenever the model has not just looked it up.\n\nSo the tool takes the stable name -- the slug, `shipped` -- and the generated code turns it into the store's id on the way out, by calling the lookup named here. The interface stays store-independent and the translation stays in the binding, beside the other things the agent never sees: the host, the token, the array serialization.\n\nThe endpoint is written out rather than read from the sibling at runtime, because the generated module is self-contained and has no registry. The gate holds the two in agreement, so the duplication cannot drift.",
+      "required": ["contract", "path", "dataPath", "matchOn", "sendField"],
+      "properties": {
+        "contract": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "The lookup this resolver calls. It must also appear in this contract's `dependencies`, must be read-only, and its scopes must already be covered by this contract's -- a resolver cannot reach further into a store than the tool it serves."
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/",
+          "description": "The lookup endpoint's path, which the gate checks against the named contract's own binding. No placeholders: a resolver runs before the request is built and has no arguments of its own."
+        },
+        "dataPath": {
+          "type": "string",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_.]*$",
+          "description": "Dotted path to the records inside the lookup's envelope. For Salla, `data`."
+        },
+        "matchOn": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-zA-Z_][a-zA-Z0-9_.]*$"
+          },
+          "description": "Dotted field paths on a looked-up record to compare the caller's value against, in order, case-insensitively. More than one because a merchant's word may sit in any of them: `slug` holds 'shipped', `name` holds the store's own label -- often Arabic -- and `translations.en.name` holds the English one."
+        },
+        "sendField": {
+          "type": "string",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_.]*$",
+          "description": "Dotted path to the value actually sent upstream once a record matches, e.g. `id`."
+        },
+        "onMiss": {
+          "enum": ["error", "drop"],
+          "default": "error",
+          "description": "What happens to a value that matches no record. `error` fails the call naming the value and what the store does have. `drop` removes it, and has to be chosen deliberately: a filter that quietly disappears is answered by the upstream with everything, which reads as a result rather than as a failure. That is the exact bug this whole feature exists to end, so the default is never silence."
+        }
+      },
+      "patternProperties": { "^_comment": true },
+      "additionalProperties": false
     },
 
     "responseEnvelope": {

@@ -1,5 +1,5 @@
 {
-  "$schema": "../../../schema/tool-contract.v1.json",
+  "$schema": "../../../schema/tool-contract.v2.json",
   "_comment": "REJECTION FIXTURE: no declared scopes, a paginated response that claims not to be a collection, a misspelled Salla scope pattern, and a description too short to route on.",
   "contractVersion": "1.0.0",
   "kind": "single-tool",
