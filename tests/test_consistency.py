@@ -17,7 +17,12 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.validate_contracts import consistency_problems  # noqa: E402
+from scripts.validate_contracts import (  # noqa: E402
+    approved_contracts,
+    consistency_problems,
+    dependency_problems,
+    tool_names,
+)
 from tests.test_salla_rules import DELETE_CONTRACT, READ_CONTRACT  # noqa: E402
 
 
@@ -115,3 +120,47 @@ def test_builtin_bindings_are_skipped():
     contract = copy.deepcopy(READ_CONTRACT)
     contract["binding"] = {"type": "none", "handler": "builtin://summarize_coupons"}
     assert consistency_problems(contract) == []
+
+
+# -- dependency edges ----------------------------------------------------------
+#
+# The check above compares a contract against itself. This one compares contracts
+# against each other, which is the only way to see that a declared dependency
+# points at a tool nobody ever wrote -- the state `list_orders` shipped in.
+
+
+def test_a_dependency_naming_a_real_contract_resolves():
+    contract = copy.deepcopy(READ_CONTRACT)
+    contract["dependencies"] = [{"contract": "delete_coupon", "reason": "ids come from there"}]
+    assert dependency_problems(contract, {"list_coupons", "delete_coupon"}) == []
+
+
+def test_a_dependency_naming_a_missing_contract_is_caught():
+    """The bug this check exists for: an edge the agent is told to follow, to nowhere."""
+    contract = copy.deepcopy(READ_CONTRACT)
+    contract["dependencies"] = [
+        {"contract": "list_coupon_statuses", "reason": "the status filter takes real slugs"}
+    ]
+    problems = dependency_problems(contract, {"list_coupons"})
+    assert any("list_coupon_statuses" in p and "not a contract" in p for p in problems), problems
+
+
+def test_a_contract_cannot_depend_on_itself():
+    contract = copy.deepcopy(READ_CONTRACT)
+    contract["dependencies"] = [{"contract": "list_coupons", "reason": "circular by mistake"}]
+    problems = dependency_problems(contract, {"list_coupons"})
+    assert any("itself" in p for p in problems), problems
+
+
+def test_no_dependencies_is_not_a_problem():
+    """Most contracts stand alone; absence of the key must stay silent."""
+    assert dependency_problems(READ_CONTRACT, set()) == []
+    assert dependency_problems({**READ_CONTRACT, "dependencies": []}, set()) == []
+
+
+def test_every_approved_contract_resolves_its_dependencies():
+    """The lane itself, held to the rule -- not just a synthetic contract."""
+    lane = approved_contracts()
+    known = tool_names(lane)
+    for contract in lane:
+        assert dependency_problems(contract, known) == [], contract["interface"]["name"]
