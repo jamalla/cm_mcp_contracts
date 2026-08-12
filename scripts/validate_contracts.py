@@ -20,6 +20,7 @@ import argparse
 import json
 import re
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
@@ -38,6 +39,31 @@ def discover(paths: list[str] | None, directory: str | None) -> list[Path]:
         return [Path(p).resolve() for p in paths]
     root = Path(directory).resolve() if directory else CONTRACTS_DIR
     return sorted(p for p in root.rglob("*.json"))
+
+
+def approved_contracts() -> list[dict]:
+    """The whole approved lane, for checks that need contracts to see each other.
+
+    A file that is not readable JSON is skipped rather than raised: it fails on its
+    own account when it is the file under validation, and it should not take down a
+    cross-contract check on an unrelated PR.
+    """
+    contracts: list[dict] = []
+    for path in sorted(CONTRACTS_DIR.rglob("*.json")):
+        try:
+            contracts.append(json.loads(path.read_text(encoding="utf-8")))
+        except json.JSONDecodeError:
+            continue
+    return contracts
+
+
+def tool_names(contracts: Iterable[dict]) -> set[str]:
+    """The tool names a set of contracts publishes -- one per contract."""
+    return {
+        name
+        for contract in contracts
+        if isinstance(contract, dict) and (name := (contract.get("interface") or {}).get("name"))
+    }
 
 
 # JSON Schema cannot carry custom error messages, so a cross-field rule surfaces as
@@ -275,6 +301,45 @@ def consistency_problems(contract: dict) -> list[str]:
     return problems
 
 
+def dependency_problems(contract: dict, known: set[str]) -> list[str]:
+    """Declared dependency edges that point at nothing.
+
+    Per-file validation cannot catch this and never could: a contract naming a
+    dependency is well-formed whether or not the tool it names was ever written.
+    The edge is a routing instruction the agent is meant to follow -- "resolve the
+    state before you filter by it" -- so one naming a tool the registry cannot
+    serve sends the agent nowhere, and the contract that needed the lookup quietly
+    proceeds without it.
+
+    This is not hypothetical: `list_orders` declared `list_order_statuses`, passed
+    the gate, and was published to a registry that did not carry it, because
+    nothing had ever compared the two halves.
+
+    Only the declared `dependencies` array is checked. A sibling named in prose --
+    whenNotToUse pointing at `get_order` -- is guidance for a tool that may not
+    exist yet, and is deliberately left alone.
+    """
+    problems: list[str] = []
+    own_name = (contract.get("interface") or {}).get("name")
+
+    for dependency in contract.get("dependencies") or []:
+        target = dependency.get("contract")
+        if not target:
+            continue  # the schema already requires it; do not report it twice
+        if target == own_name:
+            problems.append(
+                f"dependencies names {target!r}, which is this contract itself -- "
+                f"a tool cannot be a precondition for itself"
+            )
+        elif target not in known:
+            problems.append(
+                f"dependencies names {target!r}, which is not a contract in the approved "
+                f"lane -- submit that contract first, or drop the edge"
+            )
+
+    return problems
+
+
 def validate_file(path: Path, validator: Draft202012Validator) -> list[str]:
     try:
         contract = json.loads(path.read_text(encoding="utf-8"))
@@ -316,10 +381,30 @@ def main() -> int:
         print("No contracts found to validate.")
         return 0
 
+    report = {path: validate_file(path, validator) for path in files}
+
+    # Cross-contract checks, which need the files to see each other. Resolved
+    # against the whole approved lane and not just the files under review: one PR
+    # may add a dependency and its target together, and a PR touching a single
+    # contract still has to resolve against the edges the lane already has.
+    #
+    # Fixture mode is excluded on purpose -- tests/fixtures/invalid is not the lane
+    # and is not meant to resolve against it -- as are files the schema already
+    # rejected, whose `dependencies` may be absent or malformed anyway.
+    if not args.dir:
+        parsed = {
+            path: json.loads(path.read_text(encoding="utf-8"))
+            for path, problems in report.items()
+            if not problems
+        }
+        known = tool_names(parsed.values()) | tool_names(approved_contracts())
+        for path, contract in parsed.items():
+            report[path].extend(dependency_problems(contract, known))
+
     failures = 0
     for path in files:
         rel = path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
-        problems = validate_file(path, validator)
+        problems = report[path]
         if problems:
             failures += 1
             print(f"\nREJECTED  {rel}")

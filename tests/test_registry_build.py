@@ -146,6 +146,36 @@ def test_build_refuses_an_invalid_contract(tmp_path):
         broken.unlink()
 
 
+def test_build_refuses_a_dangling_dependency(tmp_path):
+    """A published edge must resolve inside the published set.
+
+    The build is the last place that sees every contract at once, so it is the only
+    place that can hold this against what is actually being served rather than
+    against whatever happened to be on disk at review time.
+    """
+    from tests.test_salla_rules import READ_CONTRACT
+
+    dangling = json.loads(json.dumps(READ_CONTRACT))
+    dangling["interface"]["name"] = "list_coupons_probe"
+    dangling["dependencies"] = [
+        {"contract": "list_coupon_statuses", "reason": "the status filter takes real slugs"}
+    ]
+
+    path = REPO_ROOT / "contracts" / "_tmp_dangling_for_test.json"
+    path.write_text(json.dumps(dangling), encoding="utf-8")
+    try:
+        result = subprocess.run(
+            [sys.executable, "scripts/build_registry.py", "--out", str(tmp_path / "reg")],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 1, result.stdout
+        assert "list_coupon_statuses" in result.stdout
+    finally:
+        path.unlink()
+
+
 def test_a_deleted_contract_disappears_from_a_rebuild(tmp_path):
     """The output directory is rebuilt, not updated in place.
 

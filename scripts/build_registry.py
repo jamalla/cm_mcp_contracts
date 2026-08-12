@@ -41,6 +41,10 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.validate_contracts import dependency_problems  # noqa: E402
+
 SCHEMA_PATH = REPO_ROOT / "schema" / "tool-contract.v1.json"
 CONTRACTS_DIR = REPO_ROOT / "contracts"
 DEFAULT_OUT = REPO_ROOT / "dist" / "registry"
@@ -89,6 +93,7 @@ def main() -> int:
     entries: list[dict] = []
     bodies: dict[str, bytes] = {}
     names: list[str] = []
+    accepted: dict[str, dict] = {}
     failures: list[str] = []
 
     for path in sorted(CONTRACTS_DIR.rglob("*.json")):
@@ -113,6 +118,7 @@ def main() -> int:
         relative = f"{CONTRACTS_SUBDIR}/{name}.json"
         bodies[relative] = body
         names.append(name)
+        accepted[name] = contract
         entries.append(
             {
                 "name": name,
@@ -121,6 +127,14 @@ def main() -> int:
                 "sha256": hashlib.sha256(body).hexdigest(),
             }
         )
+
+    # The PR gate checks this too, against the approved lane on disk. Here it is
+    # checked against what is actually about to be *published*, which is the set
+    # the engine will serve -- a contract dropped above for being invalid takes its
+    # tool name out of the registry, and anything depending on it is now dangling.
+    known = set(names)
+    for name, contract in accepted.items():
+        failures.extend(f"{name}.json: {problem}" for problem in dependency_problems(contract, known))
 
     if failures:
         print("Refusing to publish a registry with invalid contracts:\n")
