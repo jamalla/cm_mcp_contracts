@@ -12,6 +12,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The evolution check compares each contract against the approved one
+          # on main. A shallow checkout has no main to compare against, and the
+          # check would pass by finding nothing rather than by finding nothing wrong.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
@@ -30,6 +35,12 @@ jobs:
         # Guards the gate itself. If a schema edit accidentally makes these
         # valid, the gate has stopped gating.
         run: uv run python scripts/validate_contracts.py --dir tests/fixtures/invalid --expect-invalid
+
+      - name: Changed contracts must say so in their version
+        # The only check that knows what a contract USED to be. Everything else
+        # asks whether it is well formed now, which an argument quietly deleted
+        # from an approved tool passes without trouble.
+        run: uv run python scripts/check_evolution.py --baseline origin/${{ github.base_ref || 'main' }}
 
       - name: Unit tests
         run: uv run --extra dev pytest -q
