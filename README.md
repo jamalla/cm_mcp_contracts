@@ -34,7 +34,8 @@ write contract  ──PR──>  contract-gate (3 checks)
 | `templates/single-tool.template.json` | copy-and-fill starter | you copy it |
 | `contracts/` | the approved lane — submissions land here | contributors, via PR |
 | `scripts/` | the gate (structural + semantic) and the registry builder | owners only |
-| `docs/` | how the platform fits together, and the two ready-made briefings for writing a contract | contributors, to read |
+| `docs/` | how the platform fits together, and the ready-made briefing for writing a contract | contributors, to read |
+| `skills/` | the same briefing as an agent skill, for delegating submissions repeatedly | contributors, to copy |
 | `tests/fixtures/invalid/` | deliberately broken contracts that must stay rejected | owners only |
 
 There is exactly one rulebook at a time: a bump retires the previous file rather than keeping it
@@ -96,9 +97,9 @@ One endpoint, one tool, one file. Three layers:
 > in [docs/contributor-prompt.md](docs/contributor-prompt.md) — a worked example for
 > `list_categories`, adaptable to any endpoint by swapping three lines.
 >
-> Delegating it more than once? [docs/contract-authoring-skill.md](docs/contract-authoring-skill.md)
-> is the same job as an agent skill: drop it in `.claude/skills/` and it loads itself whenever the
-> task is "add a contract for *endpoint*", carrying the conventions below plus the traps a
+> Delegating it more than once? [`skills/salla-tool-contract`](skills/salla-tool-contract/SKILL.md)
+> is the same job as an agent skill: copy it into `.claude/skills/` and it loads itself whenever
+> the task is "add a contract for *endpoint*", carrying the conventions below plus the traps a
 > first-time contributor finds the hard way — the A2UI binding rule that fails silently, and the
 > checks the semantic gate runs that the schema does not.
 
