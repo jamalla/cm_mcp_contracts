@@ -9,6 +9,7 @@ code-mode MCP platform.
 | [ci-cd-workflows.md](ci-cd-workflows.md) | Every GitHub Actions workflow — inside each repo and across the three — and what fires it |
 | [code-mode-runtime.md](code-mode-runtime.md) | How `cm_mcp_engine` turns a contract into Python and runs it, stage by stage |
 | [contributor-prompt.md](contributor-prompt.md) | Ready-made briefing for someone (or something) writing a contract |
+| [contract-authoring-skill.md](contract-authoring-skill.md) | The same briefing as a reusable agent skill, for delegating contract submissions repeatedly |
 
 ## The platform in one picture
 

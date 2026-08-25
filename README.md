@@ -30,11 +30,17 @@ write contract  ──PR──>  contract-gate (3 checks)
 
 | Path | What it is | Who touches it |
 |---|---|---|
-| `schema/tool-contract.v1.json` | the one rulebook every contract must satisfy | owners only |
+| `schema/tool-contract.v3.json` | the one rulebook every contract must satisfy | owners only |
 | `templates/single-tool.template.json` | copy-and-fill starter | you copy it |
 | `contracts/` | the approved lane — submissions land here | contributors, via PR |
 | `scripts/` | the gate (structural + semantic) and the registry builder | owners only |
+| `docs/` | how the platform fits together, and the two ready-made briefings for writing a contract | contributors, to read |
 | `tests/fixtures/invalid/` | deliberately broken contracts that must stay rejected | owners only |
+
+There is exactly one rulebook at a time: a bump retires the previous file rather than keeping it
+alongside, because an engine serving both would have to decide per file which features it may
+ignore, and every bump so far has been one that cannot be ignored safely. If this table and the
+`$schema` in the template ever disagree, the template is right — it is the file the gate loads.
 
 ## Anatomy of a contract
 
@@ -42,7 +48,7 @@ One endpoint, one tool, one file. Three layers:
 
 ```jsonc
 {
-  "$schema": "../schema/tool-contract.v1.json",
+  "$schema": "../schema/tool-contract.v3.json",
   "contractVersion": "1.0.0",
   "kind": "single-tool",
 
@@ -89,6 +95,12 @@ One endpoint, one tool, one file. Three layers:
 > Delegating the submission to someone (or something) else? Hand them the ready-made briefing
 > in [docs/contributor-prompt.md](docs/contributor-prompt.md) — a worked example for
 > `list_categories`, adaptable to any endpoint by swapping three lines.
+>
+> Delegating it more than once? [docs/contract-authoring-skill.md](docs/contract-authoring-skill.md)
+> is the same job as an agent skill: drop it in `.claude/skills/` and it loads itself whenever the
+> task is "add a contract for *endpoint*", carrying the conventions below plus the traps a
+> first-time contributor finds the hard way — the A2UI binding rule that fails silently, and the
+> checks the semantic gate runs that the schema does not.
 
 1. **Pick the endpoint.** For Salla, its docs page ([docs.salla.dev](https://docs.salla.dev/))
    gives you the method, path and scopes ready to copy — using them saves your reviewer
