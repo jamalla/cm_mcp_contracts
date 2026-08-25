@@ -26,10 +26,12 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# The current rulebook. v1 is retired rather than kept alongside: an engine that
-# served both would have to decide which features it may ignore per file, and the
-# whole point of the bump is that ignoring `resolve` is not survivable.
-SCHEMA_PATH = REPO_ROOT / "schema" / "tool-contract.v2.json"
+# The current rulebook. Earlier versions are retired rather than kept alongside: an
+# engine serving several would have to decide which features it may ignore per file,
+# and every bump so far has been one that cannot be ignored safely -- a skipped
+# `resolve` sends a slug the upstream answers by returning everything, and a skipped
+# A2UI surface renders nothing at all.
+SCHEMA_PATH = REPO_ROOT / "schema" / "tool-contract.v3.json"
 CONTRACTS_DIR = REPO_ROOT / "contracts"
 
 
@@ -304,6 +306,237 @@ def consistency_problems(contract: dict) -> list[str]:
     return problems
 
 
+# The pagination object the engine attaches beside a collection's items. Declared
+# here because a surface may legitimately bind to it, and nothing else in this
+# repository knows its shape.
+PAGINATION_FIELDS = ("count", "total", "perPage", "currentPage", "totalPages")
+
+# ${...} interpolation inside a formatString template. Deliberately narrow: it
+# matches a bare pointer and NOT a nested function call, which lets the pointers
+# inside `${formatDate(value:${/expiry_date}, ...)}` be found while the call
+# wrapping them is stepped over.
+INTERPOLATED_POINTER = re.compile(r"\$\{\s*(/?[A-Za-z_][A-Za-z0-9_/]*)\s*\}")
+
+
+def _response_models(contract: dict) -> tuple[dict, dict]:
+    """The two schemas an A2UI binding can resolve against.
+
+    A contract describes ONE record. What the engine actually hands the client
+    depends on `collection`: a detail tool returns that record, a list tool
+    returns it wrapped as {items, count, pagination}. Absolute paths resolve
+    against the wrapper, relative paths against the record inside it -- so the
+    check has to model both, or every list surface looks wrong.
+    """
+    interface = contract.get("interface") or {}
+    record = (interface.get("response") or {}).get("schema") or {}
+    response = ((contract.get("binding") or {}).get("http") or {}).get("response") or {}
+
+    if not response.get("collection"):
+        return record, record
+
+    envelope = {
+        "type": "object",
+        "properties": {
+            "items": {"type": "array", "items": record},
+            "count": {"type": "integer"},
+            "pagination": {
+                "type": "object",
+                "properties": dict.fromkeys(PAGINATION_FIELDS, {"type": "integer"}),
+            },
+        },
+    }
+    return envelope, record
+
+
+def _walk(schema: dict, tokens: list[str]) -> dict | None:
+    """Follow property names through a JSON Schema, or None where it stops."""
+    node = schema
+    for token in tokens:
+        if not isinstance(node, dict):
+            return None
+        properties = node.get("properties")
+        if not isinstance(properties, dict) or token not in properties:
+            return None
+        node = properties[token]
+    return node
+
+
+def _static_children(component: dict) -> list[str]:
+    """Child ids named directly, ignoring the template form."""
+    named: list[str] = []
+    children = component.get("children")
+    if isinstance(children, list):
+        named += [c for c in children if isinstance(c, str)]
+    child = component.get("child")
+    if isinstance(child, str):
+        named.append(child)
+    return named
+
+
+def _reachable(start: str, by_id: dict[str, dict]) -> set[str]:
+    """Ids reachable from `start` WITHOUT crossing a template boundary.
+
+    A template starts a new scope with its own data, so the components under one
+    are walked separately -- that separation is what lets relative paths be
+    checked against the item rather than against the whole result.
+    """
+    seen: set[str] = set()
+    stack = [start]
+    while stack:
+        current = stack.pop()
+        if current in seen or current not in by_id:
+            continue
+        seen.add(current)
+        stack += _static_children(by_id[current])
+    return seen
+
+
+def _bindings(node, *, skip_children: bool = False):
+    """Every data path a component reads, as (pointer, where) pairs."""
+    if isinstance(node, dict):
+        if set(node) == {"path"} and isinstance(node["path"], str):
+            yield node["path"], "binding"
+            return
+        for key, value in node.items():
+            if skip_children and key == "children":
+                continue  # the template's own path is checked separately
+            yield from _bindings(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _bindings(value)
+    elif isinstance(node, str):
+        for pointer in INTERPOLATED_POINTER.findall(node):
+            yield pointer, "interpolation"
+
+
+def surface_problems(contract: dict) -> list[str]:
+    """An A2UI surface that could not render what the contract returns.
+
+    JSON Schema can say a component is well formed. It cannot say that the id a
+    parent names exists, or that `price/amount` is a field this tool actually
+    returns -- and both failures look identical to the author, because a client
+    renders a missing binding as empty rather than as an error. A surface is the
+    one part of a contract nobody sees until a merchant does, so it is worth
+    checking hardest.
+    """
+    problems: list[str] = []
+    interface = contract.get("interface") or {}
+    surface = (interface.get("response") or {}).get("ui")
+    if not isinstance(surface, dict):
+        return problems
+
+    components = surface.get("components")
+    if not isinstance(components, list):
+        return problems
+
+    # 1. Ids: unique, and a root to render from.
+    by_id: dict[str, dict] = {}
+    for component in components:
+        if not isinstance(component, dict):
+            continue
+        cid = component.get("id")
+        if not isinstance(cid, str):
+            continue
+        if cid in by_id:
+            problems.append(
+                f"ui declares two components with the id {cid!r}; ids address components, "
+                f"so the second one silently wins"
+            )
+        by_id[cid] = component
+
+    if "root" not in by_id:
+        problems.append(
+            "ui has no component with the id 'root', so the client has nothing to render from"
+        )
+
+    # 2. Every id a parent names must exist.
+    templates: dict[str, str] = {}  # template component id -> data path
+    for component in components:
+        if not isinstance(component, dict):
+            continue
+        cid = component.get("id", "(unnamed)")
+        for named in _static_children(component):
+            if named not in by_id:
+                problems.append(
+                    f"ui component {cid!r} names the child {named!r}, which is not a "
+                    f"component in this surface"
+                )
+        children = component.get("children")
+        if isinstance(children, dict):
+            template_id = children.get("componentId")
+            if isinstance(template_id, str):
+                if template_id not in by_id:
+                    problems.append(
+                        f"ui component {cid!r} repeats the template {template_id!r}, which is "
+                        f"not a component in this surface"
+                    )
+                else:
+                    templates[template_id] = children.get("path", "")
+
+    root_model, item_model = _response_models(contract)
+
+    # 3. A template must repeat over a list this tool actually returns.
+    for template_id, path in templates.items():
+        tokens = [t for t in path.split("/") if t]
+        target = _walk(root_model, tokens)
+        if target is None:
+            problems.append(
+                f"ui template {template_id!r} repeats over {path!r}, which is not part of "
+                f"this tool's result"
+            )
+        elif target.get("type") != "array":
+            problems.append(
+                f"ui template {template_id!r} repeats over {path!r}, which is not a list -- "
+                f"a template needs an array to instantiate over"
+            )
+
+    # 4. Nothing declared and never rendered.
+    reachable = _reachable("root", by_id) if "root" in by_id else set()
+    for template_id in templates:
+        reachable |= _reachable(template_id, by_id)
+    for cid in by_id:
+        if cid not in reachable:
+            problems.append(
+                f"ui component {cid!r} is declared but nothing reaches it from 'root', "
+                f"so it would never render"
+            )
+
+    # 5. The check worth having: every binding must name a field this tool returns.
+    template_scope: set[str] = set()
+    for template_id in templates:
+        template_scope |= _reachable(template_id, by_id)
+
+    for cid, component in by_id.items():
+        inside_template = cid in template_scope
+        for pointer, kind in _bindings(component, skip_children=True):
+            absolute = pointer.startswith("/")
+            tokens = [t for t in pointer.split("/") if t]
+
+            if not absolute and not inside_template:
+                problems.append(
+                    f"ui component {cid!r} reads the relative path {pointer!r}, but it is not "
+                    f"inside a template, so there is no item to be relative to -- "
+                    f"write '/{pointer}' to read it from the result"
+                )
+                continue
+
+            model = root_model if absolute else item_model
+            if _walk(model, tokens) is None:
+                where = "the record this tool returns" if not absolute else "this tool's result"
+                hint = (
+                    " (inside a template, paths are relative to the item: "
+                    "drop the leading slash)"
+                    if absolute and _walk(item_model, tokens) is not None and inside_template
+                    else ""
+                )
+                problems.append(
+                    f"ui component {cid!r} binds {pointer!r} ({kind}), which is not a field in "
+                    f"{where}{hint}"
+                )
+
+    return problems
+
+
 def dependency_problems(contract: dict, known: set[str]) -> list[str]:
     """Declared dependency edges that point at nothing.
 
@@ -442,7 +675,7 @@ def validate_file(path: Path, validator: Draft202012Validator) -> list[str]:
     # Only once the shape is valid. Running these against a contract the schema has
     # already rejected produces cascading noise about fields that are simply absent.
     if not described:
-        described = consistency_problems(contract)
+        described = consistency_problems(contract) + surface_problems(contract)
 
     return described
 

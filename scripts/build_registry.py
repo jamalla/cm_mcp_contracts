@@ -45,7 +45,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.validate_contracts import dependency_problems, resolver_problems  # noqa: E402
 
-SCHEMA_PATH = REPO_ROOT / "schema" / "tool-contract.v2.json"
+SCHEMA_PATH = REPO_ROOT / "schema" / "tool-contract.v3.json"
 CONTRACTS_DIR = REPO_ROOT / "contracts"
 DEFAULT_OUT = REPO_ROOT / "dist" / "registry"
 

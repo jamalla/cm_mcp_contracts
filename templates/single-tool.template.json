@@ -1,5 +1,5 @@
 {
-  "$schema": "../schema/tool-contract.v2.json",
+  "$schema": "../schema/tool-contract.v3.json",
   "_comment": "STARTER FILE for one upstream REST endpoint. Copy me into contracts/<tool_name>.json, fill every TODO, delete the _comment keys if you like (the schema allows them either way), and open a PR. Your editor validates against the schema as you type, so most mistakes surface before CI.",
   "_comment_upstream": "The platform's primary upstream is the Salla Admin API; for Salla endpoints, docs.salla.dev is the reference for method, path and scopes, and copying from it saves your reviewer a lot of back-and-forth. The format itself is not Salla-only -- any upstream the engine is configured for works, selected by binding.http.api.",
 
@@ -53,11 +53,16 @@
         },
         "required": ["id"]
       },
-      "_comment_ui": "Optional render hint. {braces} interpolate fields from the response.",
+      "_comment_ui": "Optional. How a client renders this result, as an A2UI surface (v0.9.1). A flat list of components where parents name their children by id; one component MUST be `root`. The agent never writes this -- you do, and a reviewer reads it, which is why a merchant never sees an interface nobody approved. The gate checks that every child id resolves and that every bound path is a field this tool actually returns, because a client renders a wrong binding as blank rather than as an error. Delete this block if raw JSON is genuinely the right rendering.",
+      "_comment_ui_scope": "Paths are JSON Pointers. A leading slash reads from the result. Inside a template -- `children: {componentId, path}` -- a path with NO leading slash reads from the current item, which is how a list gets one row per record. Below is the detail shape; for a collection tool, wrap a Row template over `/items` instead.",
       "ui": {
-        "display": "card",
-        "title": "TODO {id}",
-        "primary": "{TODO_field}"
+        "catalogId": "a2ui.org:basic",
+        "components": [
+          { "id": "root", "component": "Card", "child": "body" },
+          { "id": "body", "component": "Column", "children": ["title", "detail"] },
+          { "id": "title", "component": "Text", "text": { "path": "/TODO_field" }, "variant": "h3" },
+          { "id": "detail", "component": "Text", "text": { "path": "/id" }, "variant": "caption" }
+        ]
       }
     }
   },

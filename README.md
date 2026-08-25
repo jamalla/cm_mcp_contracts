@@ -48,7 +48,7 @@ One endpoint, one tool, one file. Three layers:
 
   "interface":  { /* WHAT: name, title, description, whenToUse/whenNotToUse,
                      MCP annotations (readOnlyHint, destructiveHint, ...),
-                     the tool's input schema, the unwrapped response + ui hint */ },
+                     the tool's input schema, the unwrapped response + A2UI surface */ },
 
   "binding":    { /* WHERE: type "http" -> which upstream (api), method, path,
                      required scopes, argument->request mapping, envelope unwrapping.
@@ -79,7 +79,7 @@ One endpoint, one tool, one file. Three layers:
 | **core annotations** | `interface.annotations` — `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint` (MCP's exact names, all four required) | served verbatim as MCP `ToolAnnotations` — and cross-checked by the gate against the method and the caching policy |
 | **LLM guidance** | `interface.whenToUse` / `whenNotToUse` — what the tool is for, and what it is *not* for (name the sibling) | folded into the tool description for any MCP client, and published under `_meta` for structured routing |
 | arguments | `interface.input.schema` | the MCP tool's `inputSchema` |
-| **UI display** | `interface.response.ui` — `card` / `table` / `text` / `json`, with `{field}` interpolation | the rendering hint a client uses instead of dumping raw JSON |
+| **UI display** | `interface.response.ui` — an [A2UI](https://github.com/a2ui-project/a2ui) surface (v0.9.1): a flat component tree, bound to the response by JSON Pointer | the interface a client renders instead of dumping raw JSON — declared by you, reviewed like the rest of the contract, never written by the agent |
 | **auth** | `binding.http.auth.scopes` | the scopes the engine's resolved credential must carry — never a secret, never a token |
 | **failure responses** | `binding.http.response.errors` — where the error message lives (`messagePath`, `fieldsPath`) plus the documented 4xx/5xx statuses, each with an agent-facing `meaning` and optional `retryable` | how the engine explains a failure — the agent says *"no category with that id"* instead of *"request failed"* |
 | **dependencies** | `dependencies[]` — `{contract, reason}` per dependent tool | reviewer + agent documentation (the POC engine does not resolve them yet) |
@@ -160,7 +160,56 @@ Rules marked **enforced** fail the gate. The rest are conventions your reviewer 
   `data` looks like — never `{status, success, data}` itself. For a list endpoint it stays a single
   object: the engine returns `{items, count, pagination}` and shapes each item to this schema, so a
   category is described identically whether the tool fetches one or many. The optional `ui` block
-  hints rendering, with `{braces}` interpolating response fields.
+  is an **A2UI surface** — see below.
+
+### The surface (what the merchant sees)
+
+`interface.response.ui` is an [A2UI](https://github.com/a2ui-project/a2ui) surface, pinned to
+**v0.9.1** — the closed production release, so a contract cannot be invalidated by spec drift.
+
+A2UI splits a generative interface into a component tree and a data model, and that is the same
+split this repository already draws. The tree is declared **here**, and reviewed like every other
+part of the contract; the engine supplies the data at call time. The agent never authors
+components — an LLM-written interface is precisely what a governed registry exists to prevent — so
+nothing reaches a merchant that a human did not read first.
+
+Components are a flat list where parents name children by id, and one must be `root`:
+
+```jsonc
+"ui": {
+  "catalogId": "a2ui.org:basic",
+  "components": [
+    { "id": "root",    "component": "Column", "children": ["heading", "rows"] },
+    { "id": "heading", "component": "Text",   "text": "Store Products", "variant": "h4" },
+    { "id": "rows",    "component": "List",   "children": { "componentId": "row", "path": "/items" } },
+    { "id": "row",     "component": "Row",    "children": ["row_name", "row_price"] },
+    { "id": "row_name","component": "Text",   "text": { "path": "name" } },
+    { "id": "row_price","component": "Text",  "text": {
+        "call": "formatCurrency",
+        "args": { "value": { "path": "price/amount" }, "currency": { "path": "price/currency" } },
+        "returnType": "string" } }
+  ]
+}
+```
+
+- **Paths are JSON Pointers, and the leading slash matters.** A leading `/` reads from the
+  result. Inside a template — `children: { componentId, path }` — a path with **no** leading slash
+  reads from the *current item*, which is how a list gets one row per record. A2UI deviates from
+  RFC 6901 deliberately here; write `/name` where `name` belongs and every row renders empty.
+- For a collection tool the result is `{items, count, pagination}`, so the template repeats over
+  `/items` and the heading can count with `/count`. For a detail tool the record *is* the result.
+- **Enforced:** every child id resolves, one component is `root`, nothing is declared and left
+  unreachable, a template repeats over an array the tool really returns, and **every bound path
+  names a field in `response.schema`** — including pointers inside a `formatString` template. This
+  check earns its place: a client renders a wrong binding as *blank*, not as an error, so a typo
+  that no test would catch reaches a merchant as an empty column.
+- Only **presentation** components are allowed: `Text`, `Column`, `Row`, `List`, `Card`,
+  `Divider`, `Image`. A2UI's interactive components are **not** in the schema, because a control
+  that calls back to the agent would route around `governance.execution` — a button that writes is
+  a write that never met its proposal. Actions can arrive once they are governed.
+- Salla money arrives as `{amount, currency}`, never a scalar; `formatCurrency` is the formatter
+  for it. `formatNumber`, `formatDate`, `formatString` and `pluralize` are the rest.
+- The block is optional. Leave it out when raw JSON genuinely is the right rendering.
 
 ### The binding (where it calls)
 
