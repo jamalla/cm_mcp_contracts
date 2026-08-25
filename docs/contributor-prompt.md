@@ -31,7 +31,7 @@ store's categories, wrapping the Salla Admin API endpoint "List Categories"
 BEFORE WRITING ANYTHING
 1. Read the repository README end to end. It defines the contract anatomy, the
    naming conventions, and the rules the gate enforces. Treat it as binding.
-2. Read schema/tool-contract.v1.json (the rulebook) and
+2. Read schema/tool-contract.v3.json (the rulebook) and
    templates/single-tool.template.json (your starting point).
 3. Research the endpoint yourself on https://docs.salla.dev/ (Merchant API →
    Categories → List Categories). The binding facts — method, path, required

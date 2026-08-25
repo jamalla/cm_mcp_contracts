@@ -148,7 +148,7 @@ token travel" a question with an answer that is reviewed by the people who hold 
 ```
 cm_mcp_contracts/
 ├── schema/
-│   └── tool-contract.v2.json      the one rulebook — owners only
+│   └── tool-contract.v3.json      the one rulebook — owners only
 ├── templates/
 │   └── single-tool.template.json  copy-and-fill starter
 ├── contracts/                     ← the approved lane; contributors PR here
@@ -283,7 +283,7 @@ dist/registry/
   "generatedAt":  "2026-08-12T06:26:21+00:00",
   "sourceRepo":   "cm_mcp_contracts",
   "sourceCommit": "0ce6bc7…",          // traceability
-  "schemaId":     "…/tool-contract.v2.json",  // the engine refuses what it cannot serve
+  "schemaId":     "…/tool-contract.v3.json",  // the engine refuses what it cannot serve
   "layout":       "index",
   "contentHash":  "de58b9f…",          // contracts+versions+hashes, NOT the build stamp
   "toolCount":    4,
@@ -900,7 +900,7 @@ completed `consume-registry` cycle leaves behind:
 
 | | approved lane (`cm_mcp_contracts/contracts/`) | pinned registry (`cm_mcp_engine/registry/`) |
 |---|---|---|
-| schema | `tool-contract.v2.json` | index declares `schemaId: …v2.json` |
+| schema | `tool-contract.v3.json` | index declares `schemaId: …v3.json` |
 | `list_brands` | `1.0.0` | `1.0.0` |
 | `list_categories` | `1.0.0` | `1.0.0` |
 | `list_coupons` | `1.0.0` | `1.0.0` |
@@ -924,12 +924,14 @@ The engine reports its resolved source at startup and from `list_contracts()` as
 `{kind, path, origin}`. **A catalog that looks wrong is almost always a source that is
 not what you assumed** — read that first, before anything else.
 
-> **Note on the contracts README.** Its repository-layout table still names
-> `schema/tool-contract.v1.json`. The file on disk is `tool-contract.v2.json`, which
-> is what `build_registry.py` and `validate_contracts.py` both load — v1 was retired
-> rather than kept alongside, because an engine serving both would have to decide
-> which features it may ignore per file, and the whole point of the bump is that
-> ignoring `resolve` is not survivable.
+> **Note on the rulebook's version.** There is only ever one file: the current
+> `schema/tool-contract.v3.json` is what `build_registry.py` and
+> `validate_contracts.py` both load, and each bump retires its predecessor rather
+> than keeping it alongside — an engine serving both would have to decide which
+> features it may ignore per file, and the bumps so far cannot be ignored safely
+> (a skipped `resolve` sends a slug the upstream answers with everything; a skipped
+> A2UI surface renders nothing). When a document names an older file, trust
+> `SCHEMA_PATH` in the validator and the `$schema` in the template over the prose.
 
 ---
 
