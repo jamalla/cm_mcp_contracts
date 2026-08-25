@@ -104,7 +104,8 @@ One endpoint, one tool, one file. Three layers:
    ```
 5. **Open a PR.** `contract-gate.yml` runs three jobs:
    - **structural** — your contract against the schema, plus the cross-reference checks below,
-     plus a self-test that the known-bad fixtures are still rejected (the gate guarding itself);
+     plus a self-test that the known-bad fixtures are still rejected (the gate guarding itself),
+     plus — for a contract that already exists — whether its version moved to match what changed;
    - **semantic** — a quality review of routing hints, sibling confusion, careless input
      surfaces (LLM-as-judge with an API key, deterministic heuristics without one — fork PRs get
      a real signal either way);
@@ -116,6 +117,46 @@ One endpoint, one tool, one file. Three layers:
    it can *execute* your contract before pinning it — a contract can pass this repo's gate and
    still be rejected there (an unsupported feature, an unknown `api` value), so watch its
    consume-registry run if your tool never appears.
+
+## Change a tool — updating an approved contract
+
+Adding a contract is the easy case: nothing depends on it yet. **Changing one that already
+merged** is where the damage lives, because agents are routing to it and the engine is serving
+it. The same PR flow applies, plus one rule the gate now enforces.
+
+1. **Edit the contract in place.** Same file, same tool name — a rename is a new tool and a
+   retirement, not an edit.
+2. **Bump `contractVersion` to match what you changed.** **Enforced:** `check_evolution.py`
+   compares your contract against the approved one on `main` and rejects a bump that is too
+   small, or missing:
+
+   | You changed | Needs |
+   |---|---|
+   | wording, routing hints, the `ui` surface, cache TTL, an error meaning | **patch** |
+   | an optional argument added, a response field added | **minor** |
+   | an argument removed or retyped, an optional one made required, an enum narrowed, a response field removed, the method/path/api changed, a scope added or dropped, execution policy changed | **major** |
+
+   Everything on the major row is something a caller already relies on. An argument deleted with
+   the version left alone is the failure this check exists for: the agent keeps sending what it
+   was told about, the request drops it, and the answer comes back looking fine.
+
+3. **The rest of the gate runs as usual** — the whole lane is re-validated, so tightening a rule
+   cannot leave an older contract silently non-conforming.
+4. **Merge, and the pipeline carries it the rest of the way.** `publish-registry.yml` builds a
+   new registry release; the engine's `consume-registry` verifies it can still *execute* every
+   contract, runs its own tests against the candidate, and opens a `Registry update: …` PR
+   pinning it. Merging that PR is what actually changes what the engine serves.
+
+Two things that follow from a version bump, worth knowing:
+
+- **The engine's generated code is keyed on content, not on the number.** Editing a contract
+  retires its cached module whether or not you remember to bump — the version is for humans and
+  for anything pinning by it, which is exactly why it has to be honest.
+- **A cached result dies with it.** The result cache keys on the same generation id, so a change
+  cannot serve an answer built by the previous version of the contract.
+
+Deleting an approved contract is **rejected** by the same check. Retiring a tool the engine is
+serving, and that agents may already route to, is a decision for a reviewer rather than a diff.
 
 ## Conventions and rules
 
@@ -293,8 +334,9 @@ REJECTED  contracts/list_coupons.json
 
 ```bash
 uv sync --extra dev
-uv run pytest                                 # 54 tests
+uv run pytest                                 # the full suite
 uv run python scripts/validate_contracts.py   # structural + cross-reference checks
+uv run python scripts/check_evolution.py      # did a changed contract bump its version?
 uv run python scripts/eval_contracts.py       # semantic review (heuristics without a key)
 uv run python scripts/build_registry.py       # -> dist/registry/
 pwsh scripts/demo_gate.ps1                    # watch bad contracts get rejected
