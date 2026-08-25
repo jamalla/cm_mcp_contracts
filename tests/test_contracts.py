@@ -10,7 +10,7 @@ from jsonschema import Draft202012Validator
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-SCHEMA_PATH = REPO_ROOT / "schema" / "tool-contract.v2.json"
+SCHEMA_PATH = REPO_ROOT / "schema" / "tool-contract.v3.json"
 CONTRACTS_DIR = REPO_ROOT / "contracts"
 TEMPLATES_DIR = REPO_ROOT / "templates"
 FIXTURES_INVALID = Path(__file__).parent / "fixtures" / "invalid"
@@ -40,7 +40,7 @@ def test_approved_contracts_validate(path, validator):
 def test_approved_contracts_reference_the_schema(path):
     """The $schema key is what gives contributors editor validation before CI."""
     contract = json.loads(path.read_text(encoding="utf-8"))
-    assert contract.get("$schema") == "../schema/tool-contract.v2.json"
+    assert contract.get("$schema") == "../schema/tool-contract.v3.json"
 
 
 def test_tool_names_are_unique_across_the_registry():
@@ -63,8 +63,18 @@ def test_tool_names_are_unique_across_the_registry():
 
 @pytest.mark.parametrize("path", INVALID, ids=lambda p: p.name)
 def test_broken_contracts_are_rejected(path, validator):
-    contract = json.loads(path.read_text(encoding="utf-8"))
-    assert list(validator.iter_errors(contract)), f"{path.name} should not have validated"
+    """The GATE must reject each fixture -- not necessarily the schema alone.
+
+    Asserting on `iter_errors` would say something narrower: that every fixture
+    is malformed. The interesting ones are not. A surface can name every
+    component correctly, satisfy the schema completely, and still bind a field
+    the tool does not return -- which a client renders as blank rather than as
+    an error. That is exactly the class the cross-reference checks exist for, so
+    the fixture for it has to be judged by the same entry point CI uses.
+    """
+    from scripts.validate_contracts import validate_file
+
+    assert validate_file(path, validator), f"{path.name} should not have validated"
 
 
 @pytest.mark.parametrize("path", INVALID, ids=lambda p: p.name)
@@ -76,7 +86,11 @@ def test_rejections_name_the_offending_field(path, validator):
     assert problems
 
     for problem in problems:
-        assert ": " in problem, problem
+        # Either form points at something the contributor can go and edit: a
+        # schema error leads with its JSON path, a cross-reference error quotes
+        # the id or field it could not resolve. What is not acceptable is a
+        # complaint naming nothing at all.
+        assert ": " in problem or "'" in problem, problem
         # The binding oneOf must be resolved to the branch the author meant,
         # never dumped as an undifferentiated pile of every branch's complaints.
         assert "is not valid under any of the given schemas" not in problem, problem
@@ -85,7 +99,7 @@ def test_rejections_name_the_offending_field(path, validator):
 @pytest.mark.parametrize("path", TEMPLATES, ids=lambda p: p.name)
 def test_templates_point_at_the_schema(path):
     template = json.loads(path.read_text(encoding="utf-8"))
-    assert template["$schema"] == "../schema/tool-contract.v2.json"
+    assert template["$schema"] == "../schema/tool-contract.v3.json"
 
 
 # What a contributor types over the placeholders. Order matters: read_write must

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://contract-mcp.example/schemas/tool-contract.v2.json",
-  "title": "Tool Contract v2",
-  "description": "The rulebook. A contract turns exactly ONE upstream REST endpoint into an MCP tool, without anyone writing server code. The shape is modeled on the Salla Admin API -- enveloped responses, scoped OAuth, standard pagination -- and Salla is the platform's primary upstream, but the format itself does not tie a contributor to it. One endpoint, one tool, one file.\n\nv2 adds `resolve` to a query parameter: a value the AGENT states in stable, human vocabulary that the UPSTREAM wants as something else -- an id that differs per store. The generated code performs the lookup and the substitution, so the translation lives with the binding it belongs to and the agent never learns it. Breaking, deliberately: an engine that does not implement `resolve` would ignore it and send the slug the upstream cannot use, and Salla answers a bad filter by returning everything rather than by failing. The schema id is what lets an engine refuse a registry it cannot serve correctly instead of serving it wrongly.",
+  "$id": "https://contract-mcp.example/schemas/tool-contract.v3.json",
+  "title": "Tool Contract v3",
+  "description": "The rulebook. A contract turns exactly ONE upstream REST endpoint into an MCP tool, without anyone writing server code. The shape is modeled on the Salla Admin API -- enveloped responses, scoped OAuth, standard pagination -- and Salla is the platform's primary upstream, but the format itself does not tie a contributor to it. One endpoint, one tool, one file.\n\nv2 added `resolve` to a query parameter: a value the AGENT states in stable, human vocabulary that the UPSTREAM wants as something else -- an id that differs per store. The generated code performs the lookup and the substitution, so the translation lives with the binding it belongs to and the agent never learns it.\n\nv3 replaces `interface.response.ui` with an A2UI surface (pinned to v0.9.1). The old block named a display mode and three interpolated strings, which could describe one record and had no way to say what a LIST looks like -- so the collection tools, the majority of the registry, had nothing to render. An A2UI surface says it properly: a component tree with a row template repeated over the result. Breaking, deliberately, and for the same reason v2 was: a client that does not implement A2UI would find no `display` to switch on and render nothing, and the schema id is what lets it refuse a registry it cannot serve correctly instead of serving it wrongly.",
 
   "type": "object",
   "required": ["contractVersion", "kind", "interface", "binding", "governance"],
@@ -125,22 +125,7 @@
               "$ref": "#/$defs/jsonSchemaObject",
               "description": "Shape of ONE record, unwrapped. Describe what is inside the envelope's data, never the envelope itself -- and for a list endpoint (binding.http.response.collection: true) describe a single item, not the array: the engine returns {items, count, pagination} and shapes each item to this. One rule for detail and list endpoints, so the same category object is described the same way in get_category and list_categories."
             },
-            "ui": {
-              "type": "object",
-              "description": "How a client should display the result, when plain JSON is not the right rendering. {braces} interpolate response fields, e.g. title \"Coupon {code}\".",
-              "required": ["display"],
-              "properties": {
-                "display": {
-                  "enum": ["card", "table", "text", "json"],
-                  "description": "card: one record with a headline value. table: a collection, one row per item. text: a sentence. json: raw payload."
-                },
-                "title": { "type": "string" },
-                "primary": { "type": "string", "description": "The headline value on a card." },
-                "secondary": { "type": "string", "description": "The supporting line under it." }
-              },
-              "patternProperties": { "^_comment": true },
-              "additionalProperties": false
-            }
+            "ui": { "$ref": "#/$defs/a2uiSurface" }
           },
           "patternProperties": { "^_comment": true },
           "additionalProperties": false
@@ -159,6 +144,193 @@
         "required": { "type": "array", "items": { "type": "string" } },
         "additionalProperties": { "type": "boolean" }
       }
+    },
+
+    "a2uiSurface": {
+      "type": "object",
+      "description": "How a client renders this tool's result, as an A2UI surface (github.com/a2ui-project/a2ui, pinned to v0.9.1 -- the closed production release, so a contract cannot be invalidated by spec drift).\n\nA2UI splits a generative interface into a component tree and a data model, and that split is the same one this repository already draws: the tree is declared HERE, reviewed like every other part of the contract, while the engine supplies the data at call time. The agent never authors components -- an LLM-written interface is exactly what a governed registry exists to prevent -- so what a merchant sees was read by a human before it shipped.\n\nThe engine turns this block into `createSurface` + `updateComponents`, and the tool's own result into `updateDataModel`.",
+      "required": ["components"],
+      "properties": {
+        "catalogId": {
+          "enum": ["a2ui.org:basic"],
+          "default": "a2ui.org:basic",
+          "description": "Which component catalog the client renders with. Only A2UI's basic catalog is served today; a catalog is a contract between agent and client, so adding one is a platform decision rather than a per-contract one."
+        },
+        "components": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The component tree, as A2UI's adjacency list: a flat array where parents name their children by id. Exactly one component must have the id `root`. Cross-reference checks in the gate enforce what JSON Schema cannot -- that every child id resolves, and that every data binding names a field this tool actually returns.",
+          "items": { "$ref": "#/$defs/a2uiComponent" }
+        }
+      },
+      "patternProperties": { "^_comment": true },
+      "additionalProperties": false
+    },
+
+    "a2uiComponent": {
+      "type": "object",
+      "required": ["id", "component"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$",
+          "description": "Unique within the surface. One component must be `root`."
+        },
+        "component": {
+          "enum": ["Text", "Column", "Row", "List", "Card", "Divider", "Image"],
+          "description": "The catalog component to render. Deliberately a subset of A2UI's basic catalog: the interactive components (Button, TextField, CheckBox, ChoicePicker, Slider, DateTimeInput) are NOT allowed, because a control that calls back to the agent would route around governance.execution -- a button that writes is a write that never met its proposal. Presentation only, until actions are governed."
+        },
+        "text": {
+          "$ref": "#/$defs/a2uiDynamicString",
+          "description": "Text only. The string to show: a literal, a data binding, or a formatting function."
+        },
+        "variant": {
+          "enum": ["h1", "h2", "h3", "h4", "h5", "caption", "body"],
+          "description": "Text only. A hint for the base text style."
+        },
+        "url": {
+          "$ref": "#/$defs/a2uiDynamicString",
+          "description": "Image only. Where the image is fetched from."
+        },
+        "children": {
+          "description": "Column, Row and List only. Either a fixed list of child ids, or a template repeated over a list in the data model.",
+          "oneOf": [
+            {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "A fixed set of child component ids."
+            },
+            {
+              "type": "object",
+              "required": ["componentId", "path"],
+              "properties": {
+                "componentId": {
+                  "type": "string",
+                  "description": "The component to instantiate once per item."
+                },
+                "path": {
+                  "type": "string",
+                  "pattern": "^/",
+                  "description": "Absolute JSON Pointer to the list in the data model, e.g. `/items` for a collection tool."
+                }
+              },
+              "additionalProperties": false,
+              "description": "A template. Inside the instantiated component, RELATIVE paths (no leading slash) resolve against the current item -- `name`, not `/name`. That is A2UI's deliberate deviation from RFC 6901, and getting it backwards renders every row empty."
+            }
+          ]
+        },
+        "child": {
+          "type": "string",
+          "description": "Card only. The id of its single child. Wrap several elements in a Column or Row and name that."
+        },
+        "direction": {
+          "enum": ["vertical", "horizontal"],
+          "description": "List only. How items are laid out."
+        },
+        "justify": {
+          "enum": ["start", "center", "end", "spaceBetween", "spaceAround", "spaceEvenly", "stretch"],
+          "description": "Column and Row only. Arrangement along the main axis."
+        },
+        "align": {
+          "enum": ["start", "center", "end", "stretch"],
+          "description": "Column, Row and List only. Alignment along the cross axis."
+        },
+        "weight": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Relative share of a parent Row or Column, like CSS flex-grow. Only meaningful as a direct child of one."
+        }
+      },
+      "patternProperties": { "^_comment": true },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "$comment": "A2UI requires the properties that give a component its content. A Text with no text renders nothing, which is never what the author meant.",
+          "if": { "properties": { "component": { "const": "Text" } }, "required": ["component"] },
+          "then": { "required": ["text"] }
+        },
+        {
+          "if": { "properties": { "component": { "const": "Image" } }, "required": ["component"] },
+          "then": { "required": ["url"] }
+        },
+        {
+          "if": { "properties": { "component": { "const": "Card" } }, "required": ["component"] },
+          "then": { "required": ["child"] }
+        },
+        {
+          "if": {
+            "properties": { "component": { "enum": ["Column", "Row", "List"] } },
+            "required": ["component"]
+          },
+          "then": { "required": ["children"] }
+        }
+      ]
+    },
+
+    "a2uiDynamicString": {
+      "description": "A2UI's DynamicString: a literal, a binding to the data model, or a client-side formatting function.",
+      "oneOf": [
+        { "type": "string", "description": "A literal, shown as written." },
+        {
+          "type": "object",
+          "required": ["path"],
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "JSON Pointer into the data model. Leading `/` resolves from the root of the tool's result; no leading slash resolves against the current item inside a template."
+            }
+          },
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/a2uiFunctionCall" }
+      ]
+    },
+
+    "a2uiDynamicValue": {
+      "description": "A function argument. A2UI types these individually rather than as strings: `formatCurrency.decimals` is a DynamicNumber and `formatNumber.grouping` a DynamicBoolean, so a literal 2 stays a number instead of becoming \"2\".",
+      "oneOf": [
+        { "$ref": "#/$defs/a2uiDynamicString" },
+        { "type": "number" },
+        { "type": "boolean" }
+      ]
+    },
+
+    "a2uiFunctionCall": {
+      "type": "object",
+      "description": "A pure formatting function the client evaluates while rendering. Restricted to the formatters: they turn a value the tool already returned into something readable, and cannot reach the network or the store. `openUrl` and the boolean operators are excluded -- navigation is an action, not formatting.",
+      "required": ["call", "args"],
+      "properties": {
+        "call": {
+          "enum": ["formatCurrency", "formatNumber", "formatDate", "formatString", "pluralize"],
+          "description": "formatCurrency is the one to reach for on Salla money objects: they arrive as {amount, currency}, never as a scalar."
+        },
+        "args": {
+          "type": "object",
+          "required": ["value"],
+          "description": "Arguments to the function. Every formatter takes `value`; each argument is itself a literal or a binding. formatString is the odd one: its `value` is a template string carrying `${/pointer}` expressions inline, rather than a binding object.",
+          "additionalProperties": { "$ref": "#/$defs/a2uiDynamicValue" }
+        },
+        "returnType": {
+          "const": "string",
+          "description": "Always `string` here: these calls fill a text slot."
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "$comment": "Each formatter's own required arguments, so a call that could never render is rejected here rather than at the client.",
+          "if": { "properties": { "call": { "const": "formatCurrency" } }, "required": ["call"] },
+          "then": { "properties": { "args": { "required": ["value", "currency"] } } }
+        },
+        {
+          "if": { "properties": { "call": { "const": "formatDate" } }, "required": ["call"] },
+          "then": { "properties": { "args": { "required": ["value", "format"] } } }
+        },
+        {
+          "if": { "properties": { "call": { "const": "pluralize" } }, "required": ["call"] },
+          "then": { "properties": { "args": { "required": ["value", "other"] } } }
+        }
+      ]
     },
 
     "binding": {

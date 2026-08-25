@@ -22,11 +22,11 @@ from jsonschema import Draft202012Validator
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-SCHEMA_PATH = REPO_ROOT / "schema" / "tool-contract.v2.json"
+SCHEMA_PATH = REPO_ROOT / "schema" / "tool-contract.v3.json"
 
 # A minimal, valid Salla read contract. Every test mutates a copy of this.
 READ_CONTRACT = {
-    "$schema": "../schema/tool-contract.v2.json",
+    "$schema": "../schema/tool-contract.v3.json",
     "contractVersion": "1.0.0",
     "kind": "single-tool",
     "interface": {

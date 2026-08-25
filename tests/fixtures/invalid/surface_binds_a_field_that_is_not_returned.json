@@ -1,0 +1,85 @@
+{
+  "$schema": "../../../schema/tool-contract.v3.json",
+  "_comment": "REJECTION FIXTURE: an A2UI surface whose bindings do not match what the tool returns. Three mistakes, all of which a client renders as BLANK rather than as an error, which is why they have to fail here instead: the row template reads '/name' when a path inside a template is relative to the item; it reads 'sku', which this contract does not return; and the heading reads a relative path with no template around it. Nothing about the surface is malformed -- JSON Schema passes it -- so only the cross-reference check catches any of it.",
+  "contractVersion": "1.0.0",
+  "kind": "single-tool",
+  "interface": {
+    "name": "list_widgets_blank_surface",
+    "title": "List Widgets",
+    "description": "Lists the widgets configured in the store, with their name and price.",
+    "whenToUse": [
+      "The merchant asks which widgets exist in the store."
+    ],
+    "whenNotToUse": [
+      "The merchant named one widget -- use get_widget instead."
+    ],
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "input": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "minimum": 1, "description": "Pagination page number." }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    "response": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "description": "The widget id." },
+          "name": { "type": "string", "description": "The widget's display name." }
+        },
+        "required": ["id", "name"]
+      },
+      "ui": {
+        "catalogId": "a2ui.org:basic",
+        "components": [
+          { "id": "root", "component": "Column", "children": ["heading", "rows"] },
+          { "id": "heading", "component": "Text", "text": { "path": "count" }, "variant": "h4" },
+          { "id": "rows", "component": "List", "children": { "componentId": "row", "path": "/items" } },
+          { "id": "row", "component": "Row", "children": ["row_name", "row_sku"] },
+          { "id": "row_name", "component": "Text", "text": { "path": "/name" } },
+          { "id": "row_sku", "component": "Text", "text": { "path": "sku" } }
+        ]
+      }
+    }
+  },
+  "binding": {
+    "type": "http",
+    "http": {
+      "api": "salla",
+      "method": "GET",
+      "path": "/widgets",
+      "auth": { "scopes": ["products.read"] },
+      "parameters": {
+        "query": [{ "name": "page", "description": "The pagination page number." }]
+      },
+      "response": {
+        "dataPath": "data",
+        "collection": true,
+        "pagination": "standard",
+        "successStatuses": [200],
+        "errors": {
+          "messagePath": "error.message",
+          "statuses": [
+            {
+              "status": 401,
+              "meaning": "The store's access token is missing, expired, or does not carry the products.read scope."
+            }
+          ]
+        }
+      }
+    }
+  },
+  "governance": {
+    "execution": { "mode": "direct", "humanApproval": "never" },
+    "caching": { "cacheable": true, "keyBy": ["page"], "ttlSeconds": 120 }
+  }
+}
