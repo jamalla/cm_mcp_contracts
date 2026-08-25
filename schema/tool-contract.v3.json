@@ -286,6 +286,15 @@
       ]
     },
 
+    "a2uiDynamicValue": {
+      "description": "A function argument. A2UI types these individually rather than as strings: `formatCurrency.decimals` is a DynamicNumber and `formatNumber.grouping` a DynamicBoolean, so a literal 2 stays a number instead of becoming \"2\".",
+      "oneOf": [
+        { "$ref": "#/$defs/a2uiDynamicString" },
+        { "type": "number" },
+        { "type": "boolean" }
+      ]
+    },
+
     "a2uiFunctionCall": {
       "type": "object",
       "description": "A pure formatting function the client evaluates while rendering. Restricted to the formatters: they turn a value the tool already returned into something readable, and cannot reach the network or the store. `openUrl` and the boolean operators are excluded -- navigation is an action, not formatting.",
@@ -299,7 +308,7 @@
           "type": "object",
           "required": ["value"],
           "description": "Arguments to the function. Every formatter takes `value`; each argument is itself a literal or a binding. formatString is the odd one: its `value` is a template string carrying `${/pointer}` expressions inline, rather than a binding object.",
-          "additionalProperties": { "$ref": "#/$defs/a2uiDynamicString" }
+          "additionalProperties": { "$ref": "#/$defs/a2uiDynamicValue" }
         },
         "returnType": {
           "const": "string",
