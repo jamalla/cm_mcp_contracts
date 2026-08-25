@@ -1,21 +1,3 @@
-# Contract-authoring skill — the briefing, made persistent
-
-[contributor-prompt.md](contributor-prompt.md) is a briefing you hand over once, per endpoint.
-This is the same job as a **skill**: a file an agent loads by itself whenever the task looks like
-"add a contract for `<endpoint>`", so the conventions, the gate's rules and the traps do not have
-to be restated — or remembered — each time.
-
-Save it as `.claude/skills/salla-tool-contract/SKILL.md`, either inside your clone of this
-repository or at the root of a workspace holding it. The frontmatter's `description` is what an
-agent matches against, so keep it if you adapt the rest.
-
-It carries what a first-time contributor learns the hard way: the two documentation pointers that
-have gone stale, the A2UI binding rule that fails silently, and the checks the semantic gate runs
-that the schema does not.
-
----
-
-````markdown
 ---
 name: salla-tool-contract
 description: Submit a new tool contract to cm_mcp_contracts - wrap one upstream REST endpoint (usually a Salla Admin API endpoint) as a JSON contract, validate it against the gate, and open the PR. Use whenever the task is "add a contract for <endpoint>", "add a tool that lists/gets/creates X in Salla", or when handed a contributor briefing like docs/contributor-prompt.md
@@ -177,4 +159,3 @@ Three jobs must go green: **Structural validation**, **Semantic review (LLM-as-j
 **Registry builds**. If one fails, read its output, fix the contract, push again. Then hand
 back the PR URL, the check results, and a note about anything ambiguous in the briefing — and
 leave it for review.
-````
