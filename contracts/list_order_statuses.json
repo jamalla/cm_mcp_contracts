@@ -1,7 +1,7 @@
 {
   "$schema": "../schema/tool-contract.v3.json",
 
-  "contractVersion": "1.1.0",
+  "contractVersion": "1.1.1",
   "kind": "single-tool",
 
   "interface": {
@@ -86,33 +86,94 @@
         "required": ["id", "name", "slug"]
       },
       "ui": {
-        "catalogId": "a2ui.org:basic",
-        "components": [
-          { "id": "root", "component": "Column", "children": ["heading", "rows"] },
-          {
-            "id": "heading",
-            "component": "Text",
-            "text": {
-              "call": "pluralize",
-              "args": { "value": { "path": "/count" }, "one": "1 order status", "other": "${/count} order statuses" },
-              "returnType": "string"
+          "catalogId": "a2ui.org:basic",
+          "components": [
+            {
+              "id": "root",
+              "component": "Column",
+              "children": [
+                "heading",
+                "rows"
+              ]
             },
-            "variant": "h4"
-          },
-          { "id": "rows", "component": "List", "children": { "componentId": "row", "path": "/items" } },
-
-          { "id": "row", "component": "Row", "children": ["row_name", "row_type"], "justify": "spaceBetween" },
-          { "id": "row_name", "component": "Text", "text": { "path": "name" }, "weight": 3 },
-          {
-            "id": "row_type",
-            "component": "Text",
-            "_comment": "type separates Salla's own statuses from the merchant's custom ones.",
-            "text": { "path": "type" },
-            "variant": "caption",
-            "weight": 1
-          }
-        ]
-      }
+            {
+              "id": "heading",
+              "component": "Text",
+              "variant": "h4",
+              "text": {
+                "call": "pluralize",
+                "args": {
+                  "value": {
+                    "path": "/count"
+                  },
+                  "one": "1 order status",
+                  "other": "${/count} order statuses"
+                },
+                "returnType": "string"
+              }
+            },
+            {
+              "id": "rows",
+              "component": "List",
+              "children": {
+                "componentId": "row",
+                "path": "/items"
+              }
+            },
+            {
+              "id": "row",
+              "component": "Row",
+              "justify": "spaceBetween",
+              "children": [
+                "row_name",
+                "row_slug",
+                "row_type",
+                "row_active"
+              ]
+            },
+            {
+              "id": "row_name",
+              "component": "Text",
+              "text": {
+                "path": "name"
+              },
+              "weight": 3
+            },
+            {
+              "id": "row_slug",
+              "component": "Text",
+              "text": {
+                "path": "slug"
+              },
+              "variant": "caption",
+              "weight": 1
+            },
+            {
+              "id": "row_type",
+              "component": "Text",
+              "variant": "caption",
+              "weight": 1,
+              "_comment": "'original' for a state Salla supplies, 'custom' for one the merchant added.",
+              "text": {
+                "path": "type"
+              }
+            },
+            {
+              "id": "row_active",
+              "component": "Text",
+              "variant": "caption",
+              "weight": 1,
+              "_comment": "The contract says not to offer an inactive state, so it has to be visible.",
+              "text": {
+                "call": "formatString",
+                "args": {
+                  "value": "active: ${is_active}"
+                },
+                "returnType": "string"
+              }
+            }
+          ]
+        }
     }
   },
 

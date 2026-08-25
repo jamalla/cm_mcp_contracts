@@ -144,3 +144,40 @@ def test_detail_surfaces_read_from_the_record_itself():
         "not a field" in problem
         for problem in surface_problems(mutate(DETAIL, "name", text={"path": "/items/name"}))
     )
+
+# -- nested templates -------------------------------------------------------
+#
+# A detail surface can repeat over several lists at once -- get_product shows
+# its categories, its options and its variants -- and each opens a scope of its
+# own. A relative path inside the variants template means "this variant's
+# field", not "this product's", so the check has to know which list each
+# component sits under rather than assuming one item shape per contract.
+
+
+def test_each_template_reads_its_own_item():
+    """The variants template resolves against a sku, not against the product."""
+    assert surface_problems(DETAIL) == []
+
+    variant = component(DETAIL, "v_sku")
+    assert variant["text"] == {"path": "sku"}
+
+    # `stock_quantity` exists on a sku and NOT on the product, so a checker
+    # using one item shape for the whole surface would reject this contract.
+    assert "stock_quantity" not in DETAIL["interface"]["response"]["schema"]["properties"]
+
+
+def test_a_field_from_the_wrong_template_is_caught():
+    """`name` is on a category, not on a sku -- and both are in this surface."""
+    contract = mutate(DETAIL, "v_sku", text={"path": "quantity"})
+    problems = surface_problems(contract)
+
+    assert any("quantity" in p for p in problems), problems
+    assert any("the item this template repeats over" in p for p in problems), problems
+
+
+def test_a_product_field_read_relatively_inside_a_variant_is_caught():
+    """The hint has to point the other way too: this one belongs on the result."""
+    contract = mutate(DETAIL, "v_sku", text={"path": "description"})
+    problems = surface_problems(contract)
+
+    assert any("/description" in p for p in problems), problems

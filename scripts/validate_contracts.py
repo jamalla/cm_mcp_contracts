@@ -318,23 +318,23 @@ PAGINATION_FIELDS = ("count", "total", "perPage", "currentPage", "totalPages")
 INTERPOLATED_POINTER = re.compile(r"\$\{\s*(/?[A-Za-z_][A-Za-z0-9_/]*)\s*\}")
 
 
-def _response_models(contract: dict) -> tuple[dict, dict]:
-    """The two schemas an A2UI binding can resolve against.
+def _root_model(contract: dict) -> dict:
+    """The schema an absolute binding resolves against.
 
     A contract describes ONE record. What the engine actually hands the client
     depends on `collection`: a detail tool returns that record, a list tool
-    returns it wrapped as {items, count, pagination}. Absolute paths resolve
-    against the wrapper, relative paths against the record inside it -- so the
-    check has to model both, or every list surface looks wrong.
+    returns it wrapped as {items, count, pagination}. Relative paths are not
+    resolved here -- each template names its own list, so the item's shape comes
+    from that list rather than from a single guess about what "the item" is.
     """
     interface = contract.get("interface") or {}
     record = (interface.get("response") or {}).get("schema") or {}
     response = ((contract.get("binding") or {}).get("http") or {}).get("response") or {}
 
     if not response.get("collection"):
-        return record, record
+        return record
 
-    envelope = {
+    return {
         "type": "object",
         "properties": {
             "items": {"type": "array", "items": record},
@@ -345,7 +345,6 @@ def _response_models(contract: dict) -> tuple[dict, dict]:
             },
         },
     }
-    return envelope, record
 
 
 def _walk(schema: dict, tokens: list[str]) -> dict | None:
@@ -473,9 +472,12 @@ def surface_problems(contract: dict) -> list[str]:
                 else:
                     templates[template_id] = children.get("path", "")
 
-    root_model, item_model = _response_models(contract)
+    root_model = _root_model(contract)
 
-    # 3. A template must repeat over a list this tool actually returns.
+    # 3. A template must repeat over a list this tool actually returns, and each
+    #    one opens a scope of its own: the components under it read the ITEM,
+    #    whose shape comes from that list rather than from the result.
+    item_models: dict[str, dict | None] = {}
     for template_id, path in templates.items():
         tokens = [t for t in path.split("/") if t]
         target = _walk(root_model, tokens)
@@ -489,6 +491,9 @@ def surface_problems(contract: dict) -> list[str]:
                 f"ui template {template_id!r} repeats over {path!r}, which is not a list -- "
                 f"a template needs an array to instantiate over"
             )
+        else:
+            items = target.get("items")
+            item_models[template_id] = items if isinstance(items, dict) else None
 
     # 4. Nothing declared and never rendered.
     reachable = _reachable("root", by_id) if "root" in by_id else set()
@@ -501,13 +506,19 @@ def surface_problems(contract: dict) -> list[str]:
                 f"so it would never render"
             )
 
-    # 5. The check worth having: every binding must name a field this tool returns.
-    template_scope: set[str] = set()
-    for template_id in templates:
-        template_scope |= _reachable(template_id, by_id)
+    # Which item each component reads a relative path against. A component
+    # outside every template has none, which is what makes a relative path there
+    # an error rather than a lookup against something arbitrary.
+    scope_of: dict[str, dict | None] = {}
+    for template_id, item_model in item_models.items():
+        for cid in _reachable(template_id, by_id):
+            scope_of[cid] = item_model
 
+    # 5. The check worth having: every binding must name a field this tool returns.
     for cid, component in by_id.items():
-        inside_template = cid in template_scope
+        inside_template = cid in scope_of
+        item_model = scope_of.get(cid)
+
         for pointer, kind in _bindings(component, skip_children=True):
             absolute = pointer.startswith("/")
             tokens = [t for t in pointer.split("/") if t]
@@ -520,15 +531,20 @@ def surface_problems(contract: dict) -> list[str]:
                 )
                 continue
 
+            if not absolute and item_model is None:
+                continue  # the template itself was already reported as unresolvable
+
             model = root_model if absolute else item_model
             if _walk(model, tokens) is None:
-                where = "the record this tool returns" if not absolute else "this tool's result"
-                hint = (
-                    " (inside a template, paths are relative to the item: "
-                    "drop the leading slash)"
-                    if absolute and _walk(item_model, tokens) is not None and inside_template
-                    else ""
-                )
+                where = "the item this template repeats over" if not absolute else "this tool's result"
+                hint = ""
+                if absolute and inside_template and _walk(item_model or {}, tokens) is not None:
+                    hint = (
+                        " (inside a template, paths are relative to the item: "
+                        "drop the leading slash)"
+                    )
+                elif not absolute and _walk(root_model, tokens) is not None:
+                    hint = f" (this one is on the result itself: write '/{pointer}')"
                 problems.append(
                     f"ui component {cid!r} binds {pointer!r} ({kind}), which is not a field in "
                     f"{where}{hint}"

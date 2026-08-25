@@ -1,7 +1,7 @@
 {
   "$schema": "../schema/tool-contract.v3.json",
 
-  "contractVersion": "1.1.0",
+  "contractVersion": "1.1.1",
   "kind": "single-tool",
 
   "interface": {
@@ -66,26 +66,77 @@
         "required": ["id", "name"]
       },
       "ui": {
-        "catalogId": "a2ui.org:basic",
-        "components": [
-          { "id": "root", "component": "Column", "children": ["heading", "rows"] },
-          {
-            "id": "heading",
-            "component": "Text",
-            "text": {
-              "call": "pluralize",
-              "args": { "value": { "path": "/count" }, "one": "1 category", "other": "${/count} categories" },
-              "returnType": "string"
+          "catalogId": "a2ui.org:basic",
+          "components": [
+            {
+              "id": "root",
+              "component": "Column",
+              "children": [
+                "heading",
+                "rows"
+              ]
             },
-            "variant": "h4"
-          },
-          { "id": "rows", "component": "List", "children": { "componentId": "row", "path": "/items" } },
-
-          { "id": "row", "component": "Row", "children": ["row_name", "row_status"], "justify": "spaceBetween" },
-          { "id": "row_name", "component": "Text", "text": { "path": "name" }, "weight": 3 },
-          { "id": "row_status", "component": "Text", "text": { "path": "status" }, "variant": "caption", "weight": 1 }
-        ]
-      }
+            {
+              "id": "heading",
+              "component": "Text",
+              "variant": "h4",
+              "text": {
+                "call": "pluralize",
+                "args": {
+                  "value": {
+                    "path": "/count"
+                  },
+                  "one": "1 category",
+                  "other": "${/count} categories"
+                },
+                "returnType": "string"
+              }
+            },
+            {
+              "id": "rows",
+              "component": "List",
+              "children": {
+                "componentId": "row",
+                "path": "/items"
+              }
+            },
+            {
+              "id": "row",
+              "component": "Row",
+              "align": "center",
+              "children": [
+                "row_image",
+                "row_name",
+                "row_status"
+              ]
+            },
+            {
+              "id": "row_image",
+              "component": "Image",
+              "_comment": "Nullable: a category with no image renders nothing here.",
+              "url": {
+                "path": "image"
+              }
+            },
+            {
+              "id": "row_name",
+              "component": "Text",
+              "text": {
+                "path": "name"
+              },
+              "weight": 3
+            },
+            {
+              "id": "row_status",
+              "component": "Text",
+              "text": {
+                "path": "status"
+              },
+              "variant": "caption",
+              "weight": 1
+            }
+          ]
+        }
     }
   },
 
